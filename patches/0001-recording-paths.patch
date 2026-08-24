@@ -1,8 +1,7 @@
 diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src/server/common/util.rs
 --- a/crates/biliup-cli/src/server/common/util.rs
 +++ b/crates/biliup-cli/src/server/common/util.rs
-@@ -171,7 +171,62 @@ pub fn parse_time(segment_time: &str) -> std::time::Duration {
- 
+@@ -1,6 +1,62 @@
  #[cfg(test)]
  mod tests {
 -    use crate::server::common::util::media_ext_from_url;
@@ -69,11 +68,10 @@ diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src
 diff --git a/crates/biliup/src/downloader/util.rs b/crates/biliup/src/downloader/util.rs
 --- a/crates/biliup/src/downloader/util.rs
 +++ b/crates/biliup/src/downloader/util.rs
-@@ -287,6 +287,20 @@ mod tests {
-     use super::*;
+@@ -4,4 +4,19 @@
      use std::path::{Path, PathBuf};
  
-+    #[test]
+     #[test]
 +    fn format_filename_at_keeps_real_time_but_shifts_record_date() {
 +        let dt = chrono::NaiveDate::from_ymd_opt(2026, 8, 25)
 +            .unwrap()
@@ -88,6 +86,5 @@ diff --git a/crates/biliup/src/downloader/util.rs b/crates/biliup/src/downloader
 +        );
 +    }
 +
-     #[test]
++    #[test]
      fn it_works() -> Result<(), Box<dyn std::error::Error>> {
-         let mut p = PathBuf::from("/feel/the");
