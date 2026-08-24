@@ -250,9 +250,12 @@ jobs:
           SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
         run: |
           test "$(find . -maxdepth 1 -type f | wc -l)" -eq 2
-          refs=$(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+          refs=()
+          for digest in *; do
+            refs+=("${{ env.IMAGE_NAME }}@sha256:$digest")
+          done
           candidate='${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA"
-          docker buildx imagetools create -t "$candidate" $refs
+          docker buildx imagetools create -t "$candidate" "${refs[@]}"
           inspect=$(docker buildx imagetools inspect "$candidate")
           printf '%s\n' "$inspect"
           grep -q 'linux/amd64' <<< "$inspect"
