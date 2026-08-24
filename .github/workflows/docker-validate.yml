@@ -1,0 +1,51 @@
+name: Validate custom Docker image
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout customizer
+        uses: actions/checkout@v4
+
+      - name: Resolve current upstream master
+        id: upstream
+        shell: bash
+        run: |
+          SHA="$(git ls-remote https://github.com/biliup/biliup.git refs/heads/master | awk '{print $1}')"
+          test -n "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare modified upstream source
+        shell: bash
+        run: |
+          UPSTREAM_DIR="$RUNNER_TEMP/biliup-upstream"
+          git clone --no-tags https://github.com/biliup/biliup.git "$UPSTREAM_DIR"
+          git -C "$UPSTREAM_DIR" checkout --detach "${{ steps.upstream.outputs.sha }}"
+          python scripts/modify_upstream.py "$UPSTREAM_DIR"
+          echo "UPSTREAM_DIR=$UPSTREAM_DIR" >> "$GITHUB_ENV"
+
+      - name: Build image with official Dockerfile
+        shell: bash
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "io.biliup-custom.upstream-revision=${{ steps.upstream.outputs.sha }}" \
+            --tag "biliup-custom:ci-${{ steps.upstream.outputs.short_sha }}" \
+            "$UPSTREAM_DIR"
+
+      - name: Smoke test image
+        shell: bash
+        run: |
+          docker run --rm "biliup-custom:ci-${{ steps.upstream.outputs.short_sha }}" --help >/tmp/biliup-help.txt
+          test -s /tmp/biliup-help.txt
