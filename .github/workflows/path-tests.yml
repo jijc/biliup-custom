@@ -26,6 +26,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - name: Checkout custom repo
         uses: actions/checkout@v4
@@ -59,8 +60,8 @@ jobs:
             upstream/crates/biliup-cli/src/server/common/util.rs \
             upstream/crates/biliup/src/downloader/util.rs
 
-      - name: Run core recording path tests
-        run: cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
+      - name: Run full biliup package test suite
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup -- --nocapture
 
-      - name: Run server recording path tests
-        run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
+      - name: Run full biliup-cli package test suite
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli -- --nocapture
