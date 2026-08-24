@@ -1,0 +1,186 @@
+name: Publish custom biliup image
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '17 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-biliup-custom
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/jijc/biliup-custom
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_sha: ${{ steps.upstream.outputs.sha }}
+      upstream_short_sha: ${{ steps.upstream.outputs.short_sha }}
+      build_needed: ${{ steps.decision.outputs.build_needed }}
+    steps:
+      - name: Resolve current upstream master
+        id: upstream
+        shell: bash
+        run: |
+          SHA="$(git ls-remote https://github.com/biliup/biliup.git refs/heads/master | awk '{print $1}')"
+          test -n "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR for scheduled lookup
+        if: github.event_name == 'schedule'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide whether a build is needed
+        id: decision
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "schedule" ]]; then
+            echo "build_needed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TAG="${IMAGE_NAME}:upstream-${{ steps.upstream.outputs.short_sha }}"
+          if docker manifest inspect "$TAG" >/dev/null 2>&1; then
+            echo "Upstream image already exists: $TAG"
+            echo "build_needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No image for current upstream yet: $TAG"
+            echo "build_needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.build_needed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout customizer
+        uses: actions/checkout@v4
+
+      - name: Prepare modified upstream source
+        shell: bash
+        run: |
+          UPSTREAM_DIR="$RUNNER_TEMP/biliup-upstream"
+          git clone --no-tags https://github.com/biliup/biliup.git "$UPSTREAM_DIR"
+          git -C "$UPSTREAM_DIR" checkout --detach "${{ needs.resolve.outputs.upstream_sha }}"
+          python scripts/modify_upstream.py "$UPSTREAM_DIR"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+          install: true
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/biliup-upstream
+          platforms: ${{ matrix.platform }}
+          push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.biliup-custom.upstream-revision=${{ needs.resolve.outputs.upstream_sha }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build-and-push.outputs.digest }}"
+          test -n "$digest"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - name: Generate artifact name
+        id: artifact-name
+        shell: bash
+        run: |
+          SAFE_PLATFORM="${{ matrix.platform }}"
+          SAFE_PLATFORM="${SAFE_PLATFORM//\//-}"
+          echo "name=digests-${SAFE_PLATFORM}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs:
+      - resolve
+      - build
+    if: needs.resolve.outputs.build_needed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and tag multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        shell: bash
+        run: |
+          UPSTREAM_TAG="upstream-${{ needs.resolve.outputs.upstream_short_sha }}"
+          CUSTOM_TAG="sha-${GITHUB_SHA:0:12}"
+          SOURCES="$(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)"
+
+          docker buildx imagetools create \
+            -t "${{ env.IMAGE_NAME }}:latest" \
+            -t "${{ env.IMAGE_NAME }}:${UPSTREAM_TAG}" \
+            -t "${{ env.IMAGE_NAME }}:${CUSTOM_TAG}" \
+            $SOURCES
+
+      - name: Inspect published manifest
+        shell: bash
+        run: docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:latest"
+
+      - name: Smoke test published image
+        shell: bash
+        run: |
+          docker pull "${{ env.IMAGE_NAME }}:latest"
+          docker run --rm "${{ env.IMAGE_NAME }}:latest" --help >/tmp/biliup-help.txt
+          test -s /tmp/biliup-help.txt

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+UPSTREAM_SHA="${1:?upstream sha required}"
+WORKDIR="${2:?workdir required}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UPSTREAM_DIR="$WORKDIR/upstream"
+
+rm -rf "$UPSTREAM_DIR"
+git clone --no-tags https://github.com/biliup/biliup.git "$UPSTREAM_DIR"
+git -C "$UPSTREAM_DIR" checkout --detach "$UPSTREAM_SHA"
+
+set +e
+python "$ROOT/scripts/modify_upstream.py" "$UPSTREAM_DIR"
+MODIFIER_RC=$?
+set -e
+
+if [[ "$MODIFIER_RC" -eq 42 ]]; then
+  echo "native-review"
+  exit 42
+fi
+if [[ "$MODIFIER_RC" -ne 0 ]]; then
+  exit "$MODIFIER_RC"
+fi
+
+# biliup-cli embeds the already-built WebUI at compile time. The official
+# Dockerfile builds it first; focused Rust tests only need the directory to
+# exist so that unrelated WebUI compilation does not mask Rust test results.
+mkdir -p "$UPSTREAM_DIR/out"
+printf '<!doctype html><title>biliup-custom test fixture</title>\n' > "$UPSTREAM_DIR/out/index.html"
+
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_recording_path_tests -- --nocapture
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup biliup_custom_record_date_tests -- --nocapture
