@@ -1,0 +1,31 @@
+name: RED recording path tests
+
+on:
+  push:
+    branches:
+      - implement/recording-paths
+    paths:
+      - 'patches/0001-recording-paths.patch'
+      - '.github/workflows/red-path-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v4
+
+      - name: Checkout current upstream
+        run: |
+          git clone --depth 1 https://github.com/biliup/biliup.git upstream
+          git -C upstream apply --check ../patches/0001-recording-paths.patch
+          git -C upstream apply ../patches/0001-recording-paths.patch
+
+      - name: Run biliup-cli path tests
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
+
+      - name: Run stream-gears path tests
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
