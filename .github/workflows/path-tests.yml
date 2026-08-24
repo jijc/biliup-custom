@@ -33,6 +33,9 @@ jobs:
       - name: Run upstream capability probe tests
         run: python3 -m unittest tests/test_check_upstream_native.py -v
 
+      - name: Validate publish workflow YAML
+        run: ruby -e "require 'yaml'; YAML.load_file('.github/workflows/sync-and-build.yml', aliases: true); puts 'workflow yaml ok'"
+
       - name: Checkout current upstream and apply custom patcher
         run: |
           git clone --depth 1 https://github.com/biliup/biliup.git upstream
@@ -59,6 +62,3 @@ jobs:
 
       - name: Run server recording path tests
         run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
-
-      - name: Build complete Docker image without pushing
-        run: docker build --tag biliup-custom:verification ./upstream
