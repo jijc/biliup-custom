@@ -1,0 +1,59 @@
+name: Docker smoke build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'patches/**'
+      - '.github/workflows/docker-smoke.yml'
+      - '.github/workflows/sync-and-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v4
+
+      - name: Checkout current upstream and apply custom patcher
+        run: |
+          git clone --depth 1 https://github.com/biliup/biliup.git upstream
+          python3 patches/apply_recording_paths.py upstream
+          rustfmt --edition 2024 \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build patched upstream image without pushing
+        uses: docker/build-push-action@v6
+        with:
+          context: ./upstream
+          file: ./upstream/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          tags: biliup-custom-smoke:${{ matrix.arch }}
+          cache-from: type=gha,scope=docker-smoke-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-smoke-${{ matrix.arch }}
