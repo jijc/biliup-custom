@@ -1,0 +1,311 @@
+name: Sync upstream and build image
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - 'patches/**'
+      - '.github/workflows/sync-and-build.yml'
+
+permissions:
+  contents: write
+  packages: write
+  issues: write
+
+env:
+  IMAGE_NAME: ghcr.io/jijc/biliup-custom
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      upstream_sha: ${{ steps.upstream.outputs.sha }}
+      short_sha: ${{ steps.upstream.outputs.short_sha }}
+      should_build: ${{ steps.decision.outputs.should_build }}
+      native_candidate: ${{ steps.native.outputs.native_candidate }}
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v4
+
+      - name: Checkout current upstream
+        id: upstream
+        run: |
+          git clone --depth 1 https://github.com/biliup/biliup.git upstream
+          sha=$(git -C upstream rev-parse HEAD)
+          short_sha=$(git -C upstream rev-parse --short=12 HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "Upstream: $sha"
+
+      - name: Detect possible native replacement
+        id: native
+        shell: bash
+        run: |
+          native_candidate=false
+
+          if grep -R -F '{record_date}' upstream/crates/biliup-cli/src upstream/crates/biliup/src >/dev/null 2>&1; then
+            native_candidate=true
+          fi
+
+          if grep -Eq 'recording_(dir|path|root)|save_dir|output_dir' upstream/crates/biliup-cli/src/server/config.rs 2>/dev/null; then
+            native_candidate=true
+          fi
+
+          echo "native_candidate=$native_candidate" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether a build is needed
+        id: decision
+        env:
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
+          NATIVE_CANDIDATE: ${{ steps.native.outputs.native_candidate }}
+        run: |
+          last_sha=""
+          if [ -f state/upstream-sha.txt ]; then
+            last_sha=$(tr -d '[:space:]' < state/upstream-sha.txt)
+          fi
+
+          should_build=true
+          if [ "$NATIVE_CANDIDATE" = "true" ]; then
+            should_build=false
+          elif [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ "$UPSTREAM_SHA" = "$last_sha" ]; then
+            should_build=false
+          fi
+
+          echo "last_sha=$last_sha"
+          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
+
+      - name: Apply patches and run focused tests
+        if: ${{ steps.decision.outputs.should_build == 'true' }}
+        run: |
+          for patch in patches/*.patch; do
+            echo "Applying $patch"
+            git -C upstream apply --check "../$patch"
+            git -C upstream apply "../$patch"
+          done
+
+          mkdir -p upstream/out
+          printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
+
+          cargo fmt --manifest-path upstream/Cargo.toml --all -- --check
+          cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
+          cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
+
+  native-notice:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.native_candidate == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create or update upstream-native notice
+        uses: actions/github-script@v7
+        env:
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        with:
+          script: |
+            const title = '[upstream-native] Official biliup may now support recording paths';
+            const body = [
+              'Automatic publishing has been paused because the current upstream source contains signals of a native recording-path/output-directory capability.',
+              '',
+              `Upstream commit: \`${process.env.UPSTREAM_SHA}\``,
+              '',
+              'No custom `latest` image was overwritten. Review the official capability once, map the filename/output settings, then retire the custom patch if it is equivalent.'
+            ].join('\n');
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            const existing = issues.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body });
+            }
+
+  build:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.should_build == 'true' && needs.prepare.outputs.native_candidate != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v4
+
+      - name: Checkout exact upstream commit and apply patches
+        env:
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/biliup/biliup.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout --detach FETCH_HEAD
+          for patch in patches/*.patch; do
+            git -C upstream apply --check "../$patch"
+            git -C upstream apply "../$patch"
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+          install: true
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push platform digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./upstream
+          file: ./upstream/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Generate artifact name
+        id: artifact
+        shell: bash
+        run: |
+          safe='${{ matrix.platform }}'
+          safe="${safe//\//-}"
+          echo "name=digests-$safe" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [prepare, build]
+    if: ${{ needs.prepare.outputs.should_build == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download platform digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish latest and traceable upstream tag
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+        run: |
+          refs=$(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+          docker buildx imagetools create \
+            -t '${{ env.IMAGE_NAME }}:latest' \
+            -t '${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA" \
+            $refs
+          docker buildx imagetools inspect '${{ env.IMAGE_NAME }}:latest'
+
+      - name: Record last successfully published upstream commit
+        env:
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          mkdir -p state
+          printf '%s\n' "$UPSTREAM_SHA" > state/upstream-sha.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add state/upstream-sha.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'chore: record published upstream commit [skip ci]'
+          git push origin HEAD:main
+
+      - name: Close stale sync-failure issue after recovery
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '[sync-failure] biliup-custom could not follow upstream';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            for (const issue of issues.filter(i => i.title === title)) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+            }
+
+  failure-notice:
+    needs: [prepare, build, merge]
+    if: ${{ always() && needs.prepare.outputs.native_candidate != 'true' && (needs.prepare.result == 'failure' || needs.build.result == 'failure' || needs.merge.result == 'failure') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create or update sync-failure issue
+        uses: actions/github-script@v7
+        env:
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          MERGE_RESULT: ${{ needs.merge.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const title = '[sync-failure] biliup-custom could not follow upstream';
+            const body = [
+              'The automatic upstream sync/build failed. The previously published `latest` image was not replaced.',
+              '',
+              `Upstream commit: \`${process.env.UPSTREAM_SHA || 'unknown'}\``,
+              `prepare: ${process.env.PREPARE_RESULT}`,
+              `build: ${process.env.BUILD_RESULT}`,
+              `merge/publish: ${process.env.MERGE_RESULT}`,
+              '',
+              `Actions run: ${process.env.RUN_URL}`
+            ].join('\n');
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            const existing = issues.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body });
+            }
