@@ -52,3 +52,6 @@ jobs:
 
       - name: Run server recording path tests
         run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
+
+      - name: Build complete Docker image without pushing
+        run: docker build --tag biliup-custom:verification ./upstream
