@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout custom repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run upstream capability probe tests
         run: python3 -m unittest tests/test_check_upstream_native.py -v
