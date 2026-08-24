@@ -72,15 +72,18 @@ def make_upstream(root: Path) -> None:
 
 
 class ModifyUpstreamTests(unittest.TestCase):
+    def run_modifier(self, root: Path):
+        return subprocess.run(
+            [sys.executable, "scripts/modify_upstream.py", str(root)],
+            text=True,
+            capture_output=True,
+        )
+
     def test_current_upstream_shape_gets_path_and_four_am_support(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_upstream(root)
-            result = subprocess.run(
-                [sys.executable, "scripts/modify_upstream.py", str(root)],
-                text=True,
-                capture_output=True,
-            )
+            result = self.run_modifier(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             server = (root / "crates/biliup-cli/src/server/common/util.rs").read_text(encoding="utf-8")
@@ -91,6 +94,46 @@ class ModifyUpstreamTests(unittest.TestCase):
             self.assertIn('render_record_date(&template', server)
             self.assertIn('pub fn format_filename_at(', downloader)
             self.assertIn('chrono::Duration::hours(4)', downloader)
+
+    def test_modifier_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_upstream(root)
+            first = self.run_modifier(root)
+            second = self.run_modifier(root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+
+            server = (root / "crates/biliup-cli/src/server/common/util.rs").read_text(encoding="utf-8")
+            downloader = (root / "crates/biliup/src/downloader/util.rs").read_text(encoding="utf-8")
+            self.assertEqual(server.count("biliup-custom:auto-modifier:v1"), 1)
+            self.assertEqual(downloader.count("biliup-custom:auto-modifier:v1"), 1)
+
+    def test_upstream_record_date_stops_for_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_upstream(root)
+            path = root / "crates/biliup-cli/src/server/common/util.rs"
+            path.write_text(
+                path.read_text(encoding="utf-8") + "\n// upstream record_date support\n",
+                encoding="utf-8",
+            )
+            result = self.run_modifier(root)
+            self.assertEqual(result.returncode, 42, result.stdout + result.stderr)
+            self.assertIn("native-review:", result.stdout)
+
+    def test_native_output_directory_setting_stops_for_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_upstream(root)
+            path = root / "crates/biliup-cli/src/server/config.rs"
+            path.write_text(
+                "pub struct Config { pub recording_output_dir: Option<String> }\n",
+                encoding="utf-8",
+            )
+            result = self.run_modifier(root)
+            self.assertEqual(result.returncode, 42, result.stdout + result.stderr)
+            self.assertIn("native-review:", result.stdout)
 
 
 if __name__ == "__main__":
