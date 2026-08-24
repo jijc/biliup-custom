@@ -22,7 +22,7 @@ impl Recorder {
             .replace("{url}", "url")
     }
 
-    pub fn generate_filename(&self, _suffix: &str) -> String {
+    pub fn generate_filename(&self, suffix: &str) -> String {
         let template = self.filename_template();
         Local::now().format(&template).to_string()
     }
