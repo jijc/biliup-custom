@@ -1,0 +1,72 @@
+diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src/server/common/util.rs
+--- a/crates/biliup-cli/src/server/common/util.rs
++++ b/crates/biliup-cli/src/server/common/util.rs
+@@ -52,7 +52,7 @@ impl Recorder {
+         let mut t = Local::now();
+ 
+         loop {
+-            let base = t.format(&template).to_string();
++            let base = render_time_template(&template, t.naive_local());
+             if !self.exists_with_suffix(&base, suffix) {
+                 return base;
+             }
+@@ -63,18 +63,17 @@ impl Recorder {
+     /// 生成“基名”（不带扩展名）
+     pub fn format_filename(&self) -> String {
+         let template = self.filename_template();
+-        self.streamer_info
+-            .date
+-            .with_timezone(&Local)
+-            .format(&template)
+-            .to_string()
++        let local = self.streamer_info.date.with_timezone(&Local);
++        render_time_template(&template, local.naive_local())
+     }
+ 
+     pub fn format(&self, template: &str) -> String {
+-        self.streamer_info
+-            .date
+-            .with_timezone(&Local)
+-            .format(&self.template_with(template))
+-            .to_string()
++        let local = self.streamer_info.date.with_timezone(&Local);
++        render_time_template(&self.template_with(template), local.naive_local())
+     }
+ 
+     /// 直接生成带扩展名的完整路径（当前目录下）
+@@ -135,6 +134,12 @@ pub(crate) fn logical_record_date_naive(dt: chrono::NaiveDateTime) -> String {
+     (dt - Duration::hours(4)).format("%Y-%m-%d").to_string()
+ }
+ 
++fn render_time_template(template: &str, local: chrono::NaiveDateTime) -> String {
++    let record_date = logical_record_date_naive(local);
++    let expanded = template.replace("{record_date}", &record_date);
++    local.format(&expanded).to_string()
++}
++
+ /// 生成弹幕文件名模板（包含时间格式占位符），并清洗非法字符
+ pub fn danmaku_filename_template(filename_prefix: Option<&str>, name: &str) -> String {
+     let template = filename_prefix
+@@ -223,6 +228,21 @@ mod tests {
+         assert_eq!(logical_record_date_naive(at_boundary), "2026-08-25");
+     }
+ 
++    #[test]
++    fn recorder_time_render_keeps_real_clock_and_logical_day() {
++        let dt = NaiveDate::from_ymd_opt(2026, 8, 25)
++            .unwrap()
++            .and_hms_opt(2, 10, 0)
++            .unwrap();
++        assert_eq!(
++            super::render_time_template(
++                "/recordings/主播/{record_date}/[%Y年%m月%d日-%H时%M分%S秒]",
++                dt
++            ),
++            "/recordings/主播/2026-08-24/[2026年08月25日-02时10分00秒]"
++        );
++    }
++
+     #[test]
+     fn it_works() {
+         assert_eq!(
+             media_ext_from_url(
