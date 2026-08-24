@@ -223,16 +223,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish latest and traceable upstream tag
+      - name: Publish traceable candidate manifest
         working-directory: ${{ runner.temp }}/digests
         env:
           SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
         run: |
           refs=$(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
-          docker buildx imagetools create \
-            -t '${{ env.IMAGE_NAME }}:latest' \
-            -t '${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA" \
-            $refs
+          candidate='${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA"
+          docker buildx imagetools create -t "$candidate" $refs
+          docker buildx imagetools inspect "$candidate"
+
+      - name: Promote verified candidate to latest
+        env:
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+        run: |
+          candidate='${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA"
+          docker buildx imagetools create -t '${{ env.IMAGE_NAME }}:latest' "$candidate"
           docker buildx imagetools inspect '${{ env.IMAGE_NAME }}:latest'
 
       - name: Record last successfully published upstream commit
