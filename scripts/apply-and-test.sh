@@ -23,6 +23,12 @@ if [[ "$MODIFIER_RC" -ne 0 ]]; then
   exit "$MODIFIER_RC"
 fi
 
+# Check only the two files modified by biliup-custom. Upstream master may
+# temporarily contain unrelated rustfmt differences elsewhere in the tree.
+rustfmt --check \
+  "$UPSTREAM_DIR/crates/biliup-cli/src/server/common/util.rs" \
+  "$UPSTREAM_DIR/crates/biliup/src/downloader/util.rs"
+
 # biliup-cli embeds the already-built WebUI at compile time. The official
 # Dockerfile builds it first; focused Rust tests only need the directory to
 # exist so that unrelated WebUI compilation does not mask Rust test results.
@@ -31,4 +37,3 @@ printf '<!doctype html><title>biliup-custom test fixture</title>\n' > "$UPSTREAM
 
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_recording_path_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup biliup_custom_record_date_tests -- --nocapture
-cargo fmt --manifest-path "$UPSTREAM_DIR/Cargo.toml" --all -- --check
