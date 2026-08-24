@@ -9,12 +9,18 @@ on:
       - main
     paths:
       - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
       - '.github/workflows/sync-and-build.yml'
 
 permissions:
   contents: write
   packages: write
   issues: write
+
+concurrency:
+  group: biliup-custom-sync
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: ghcr.io/jijc/biliup-custom
@@ -45,17 +51,23 @@ jobs:
         id: native
         shell: bash
         run: |
-          native_candidate=false
+          set +e
+          python3 scripts/check_upstream_native.py upstream
+          status=$?
+          set -e
 
-          if grep -R -F '{record_date}' upstream/crates/biliup-cli/src upstream/crates/biliup/src >/dev/null 2>&1; then
-            native_candidate=true
-          fi
-
-          if grep -Eq 'recording_(dir|path|root)|save_dir|output_dir' upstream/crates/biliup-cli/src/server/config.rs 2>/dev/null; then
-            native_candidate=true
-          fi
-
-          echo "native_candidate=$native_candidate" >> "$GITHUB_OUTPUT"
+          case "$status" in
+            0)
+              echo "native_candidate=false" >> "$GITHUB_OUTPUT"
+              ;;
+            42)
+              echo "native_candidate=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Capability probe failed with status $status" >&2
+              exit "$status"
+              ;;
+          esac
 
       - name: Decide whether a build is needed
         id: decision
@@ -77,6 +89,12 @@ jobs:
 
           echo "last_sha=$last_sha"
           echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Rust build
+        if: ${{ steps.decision.outputs.should_build == 'true' }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream
 
       - name: Apply custom patcher and run focused tests
         if: ${{ steps.decision.outputs.should_build == 'true' }}
@@ -108,11 +126,11 @@ jobs:
           script: |
             const title = '[upstream-native] Official biliup may now support recording paths';
             const body = [
-              'Automatic publishing has been paused because the current upstream source contains signals of a native recording-path/output-directory capability.',
+              'Automatic publishing has been paused because the conservative capability probe found a change that may make the custom recording-path layer unnecessary.',
               '',
               `Upstream commit: \`${process.env.UPSTREAM_SHA}\``,
               '',
-              'No custom `latest` image was overwritten. Review the official capability once, map the filename/output settings, then retire the custom patch if it is equivalent.'
+              'No custom `latest` image was overwritten. Review official output-directory/path-template and logical-day support once; if equivalent, migrate back to the official image instead of extending this patch.'
             ].join('\n');
             const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             const existing = issues.find(i => i.title === title);
@@ -173,11 +191,14 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=publish-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=publish-${{ matrix.platform }}
 
       - name: Export digest
         run: |
           mkdir -p "${{ runner.temp }}/digests"
           digest='${{ steps.build.outputs.digest }}'
+          test -n "$digest"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Generate artifact name
@@ -223,15 +244,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish traceable candidate manifest
+      - name: Publish and verify traceable candidate manifest
         working-directory: ${{ runner.temp }}/digests
         env:
           SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
         run: |
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 2
           refs=$(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
           candidate='${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA"
           docker buildx imagetools create -t "$candidate" $refs
-          docker buildx imagetools inspect "$candidate"
+          inspect=$(docker buildx imagetools inspect "$candidate")
+          printf '%s\n' "$inspect"
+          grep -q 'linux/amd64' <<< "$inspect"
+          grep -q 'linux/arm64' <<< "$inspect"
 
       - name: Promote verified candidate to latest
         env:
@@ -239,7 +264,10 @@ jobs:
         run: |
           candidate='${{ env.IMAGE_NAME }}:upstream-'"$SHORT_SHA"
           docker buildx imagetools create -t '${{ env.IMAGE_NAME }}:latest' "$candidate"
-          docker buildx imagetools inspect '${{ env.IMAGE_NAME }}:latest'
+          inspect=$(docker buildx imagetools inspect '${{ env.IMAGE_NAME }}:latest')
+          printf '%s\n' "$inspect"
+          grep -q 'linux/amd64' <<< "$inspect"
+          grep -q 'linux/arm64' <<< "$inspect"
 
       - name: Record last successfully published upstream commit
         env:
@@ -258,11 +286,14 @@ jobs:
 
       - name: Close stale sync-failure issue after recovery
         uses: actions/github-script@v7
+        env:
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
         with:
           script: |
             const title = '[sync-failure] biliup-custom could not follow upstream';
             const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             for (const issue of issues.filter(i => i.title === title)) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body: `Recovered and published upstream ${process.env.UPSTREAM_SHA}.` });
               await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed' });
             }
 
@@ -283,7 +314,7 @@ jobs:
           script: |
             const title = '[sync-failure] biliup-custom could not follow upstream';
             const body = [
-              'The automatic upstream sync/build workflow failed. Tests and image builds must succeed before `latest` is published; if the failure happened during final bookkeeping, inspect the run to confirm whether a validated image was already published.',
+              'The automatic upstream sync/build workflow failed. Patch/tests and both image builds must succeed before `latest` is published. If failure happened only during final bookkeeping, inspect the run to confirm whether a validated image was already published.',
               '',
               `Upstream commit: \`${process.env.UPSTREAM_SHA || 'unknown'}\``,
               `prepare: ${process.env.PREPARE_RESULT}`,
