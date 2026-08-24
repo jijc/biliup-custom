@@ -47,10 +47,12 @@ diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src
  /// 生成弹幕文件名模板（包含时间格式占位符），并清洗非法字符
  pub fn danmaku_filename_template(filename_prefix: Option<&str>, name: &str) -> String {
      let template = filename_prefix
-@@ -223,6 +228,21 @@ mod tests {
+@@ -223,6 +228,22 @@ mod tests {
          assert_eq!(logical_record_date_naive(at_boundary), "2026-08-25");
      }
  
++    // 02:10 is before the 04:00 logical-day boundary: folder date is previous day,
++    // while the filename keeps the real wall-clock date and time.
 +    #[test]
 +    fn recorder_time_render_keeps_real_clock_and_logical_day() {
 +        let dt = NaiveDate::from_ymd_opt(2026, 8, 25)
