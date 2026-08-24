@@ -5,13 +5,13 @@ on:
     branches:
       - implement/recording-paths
     paths:
-      - 'patches/0001-recording-paths.patch'
+      - 'patches/**'
       - '.github/workflows/path-tests.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'patches/0001-recording-paths.patch'
+      - 'patches/**'
       - '.github/workflows/path-tests.yml'
 
 permissions:
@@ -24,13 +24,19 @@ jobs:
       - name: Checkout custom repo
         uses: actions/checkout@v4
 
-      - name: Checkout current upstream and apply patch
+      - name: Checkout current upstream and apply patches
         run: |
           git clone --depth 1 https://github.com/biliup/biliup.git upstream
-          git -C upstream apply --check ../patches/0001-recording-paths.patch
-          git -C upstream apply ../patches/0001-recording-paths.patch
+          for patch in patches/*.patch; do
+            echo "Applying $patch"
+            git -C upstream apply --check "../$patch"
+            git -C upstream apply "../$patch"
+          done
           mkdir -p upstream/out
           printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path upstream/Cargo.toml --all -- --check
 
       - name: Run core recording path tests
         run: cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
