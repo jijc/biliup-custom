@@ -7,6 +7,12 @@ on:
     paths:
       - 'patches/0001-recording-paths.patch'
       - '.github/workflows/red-path-tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'patches/0001-recording-paths.patch'
+      - '.github/workflows/red-path-tests.yml'
 
 permissions:
   contents: read
