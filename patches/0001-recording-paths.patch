@@ -1,6 +1,80 @@
 diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src/server/common/util.rs
 --- a/crates/biliup-cli/src/server/common/util.rs
 +++ b/crates/biliup-cli/src/server/common/util.rs
+@@ -29,17 +29,31 @@
+     /// 生成文件名模板（包含时间格式占位符），并清洗非法字符
+     pub fn filename_template(&self) -> String {
++        if let Some(prefix) = &self.filename_prefix
++            && is_recording_path_template(prefix)
++        {
++            let raw = self.template_with_sanitized_values(prefix);
++            return sanitize_path_template(&raw);
++        }
++
+         let raw = if let Some(prefix) = &self.filename_prefix {
+             self.template_with(prefix)
+         } else {
+             format!("{}%Y-%m-%dT%H_%M_%S", self.streamer_info.name)
+         };
+         sanitize_filename(&raw)
+     }
+ 
+     fn template_with(&self, template: &str) -> String {
+         template
+             .replace("{streamer}", &self.streamer_info.name)
+             .replace("{title}", &self.streamer_info.title)
+             .replace("{url}", &self.streamer_info.url)
+     }
+ 
++    fn template_with_sanitized_values(&self, template: &str) -> String {
++        template
++            .replace("{streamer}", &sanitize_filename(&self.streamer_info.name))
++            .replace("{title}", &sanitize_filename(&self.streamer_info.title))
++            .replace("{url}", &sanitize_filename(&self.streamer_info.url))
++    }
++
+@@ -91,14 +91,41 @@
+ fn sanitize_filename(name: &str) -> String {
+     let mut out = String::with_capacity(name.len());
+     for ch in name.chars() {
+         match ch {
+             '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => out.push('_'),
+             c if c.is_control() => out.push('_'),
+             _ => out.push(ch),
+         }
+     }
+     let out = out.trim_end_matches([' ', '.']).to_string();
+     if out.is_empty() { "_".to_string() } else { out }
+ }
+ 
++fn is_recording_path_template(template: &str) -> bool {
++    template.starts_with("/recordings/") && template.contains("{record_date}")
++}
++
++fn sanitize_path_template(template: &str) -> String {
++    let absolute = template.starts_with('/');
++    let mut components = Vec::new();
++
++    for (index, component) in template.split('/').enumerate() {
++        if index == 0 && absolute && component.is_empty() {
++            continue;
++        }
++        components.push(sanitize_filename(component));
++    }
++
++    let joined = components.join("/");
++    if absolute {
++        format!("/{joined}")
++    } else {
++        joined
++    }
++}
++
++pub(crate) fn logical_record_date_naive(dt: chrono::NaiveDateTime) -> String {
++    (dt - Duration::hours(4)).format("%Y-%m-%d").to_string()
++}
++
+ /// 生成弹幕文件名模板（包含时间格式占位符），并清洗非法字符
 @@ -174,6 +174,62 @@
  #[cfg(test)]
  mod tests {
@@ -68,7 +142,29 @@ diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src
 diff --git a/crates/biliup/src/downloader/util.rs b/crates/biliup/src/downloader/util.rs
 --- a/crates/biliup/src/downloader/util.rs
 +++ b/crates/biliup/src/downloader/util.rs
-@@ -298,4 +298,19 @@
+@@ -1 +1 @@
+-use chrono::{DateTime, Local};
++use chrono::Local;
+@@ -287,8 +287,12 @@
+-pub fn format_filename(file_name: &str) -> String {
+-    let local: DateTime<Local> = Local::now();
+-    // let time_str = local.format("%Y-%m-%dT%H_%M_%S");
+-    let time_str = local.format(file_name);
+-    // format!("{file_name}{time_str}")
+-    time_str.to_string()
++pub(crate) fn format_filename_at(file_name: &str, local: chrono::NaiveDateTime) -> String {
++    let record_date = (local - chrono::Duration::hours(4))
++        .format("%Y-%m-%d")
++        .to_string();
++    let template = file_name.replace("{record_date}", &record_date);
++    local.format(&template).to_string()
+ }
+ 
++pub fn format_filename(file_name: &str) -> String {
++    format_filename_at(file_name, Local::now().naive_local())
++}
++
+@@ -298,4 +302,19 @@
      use std::path::{Path, PathBuf};
  
      #[test]
