@@ -25,14 +25,10 @@ jobs:
       - name: Checkout custom repo
         uses: actions/checkout@v4
 
-      - name: Checkout current upstream and apply patches
+      - name: Checkout current upstream and apply custom patcher
         run: |
           git clone --depth 1 https://github.com/biliup/biliup.git upstream
-          for patch in patches/*.patch; do
-            echo "Applying $patch"
-            git -C upstream apply --check "../$patch"
-            git -C upstream apply "../$patch"
-          done
+          python3 patches/apply_recording_paths.py upstream
           mkdir -p upstream/out
           printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
 
@@ -56,7 +52,7 @@ jobs:
         with:
           script: |
             const title = '[tdd-green] Recording path tests pass';
-            const body = `GREEN confirmed for ${context.sha}: all recording-path patches applied, rustfmt passed, and both focused Rust test groups passed.`;
+            const body = `GREEN confirmed for ${context.sha}: deterministic patching succeeded, rustfmt passed, and both focused Rust test groups passed.`;
             const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             const existing = issues.find(i => i.title === title);
             if (existing) {
