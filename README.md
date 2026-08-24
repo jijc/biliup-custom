@@ -49,6 +49,8 @@ services:
 - 不需要 `mv` 后处理；`.part` 从创建开始就在最终的主播/日期目录，分段完成后原地变为 `.flv`。
 - 45 分钟分段仍在 biliup WebUI 中使用官方 `segment_time` 设置。
 
+GitHub Container Registry 的包可见性与仓库可见性相互独立。首次成功发布镜像后，如果 GHCR 把包默认设为 Private，需要在 GitHub 的该 Package 设置里一次性改成 Public；之后群晖即可直接匿名拉取 `ghcr.io/jijc/biliup-custom:latest`，无需保存 GitHub Token。
+
 ## 文件名模板兼容策略
 
 只有以 `/recordings/` 开头并包含 `{record_date}` 的模板启用目录模式。其它原有模板继续按官方行为处理，因此普通模板中的 `/` 仍会被清洗成 `_`。
@@ -63,9 +65,7 @@ services:
 2. 对官方源码应用本仓库的薄补丁。
 3. 运行路径相关 Rust 测试。
 4. 使用官方 Dockerfile 构建 `linux/amd64` 与 `linux/arm64`。
-5. 成功后发布：
-   - `ghcr.io/jijc/biliup-custom:latest`
-   - `ghcr.io/jijc/biliup-custom:upstream-<官方commit短SHA>`
+5. 成功后先发布并检查 `ghcr.io/jijc/biliup-custom:upstream-<官方commit短SHA>`，确认候选镜像正常后再把同一 manifest 晋升为 `ghcr.io/jijc/biliup-custom:latest`。
 6. 构建失败时不覆盖现有 `latest`，并创建/更新 GitHub Issue。
 
 ## 官方未来原生支持时
