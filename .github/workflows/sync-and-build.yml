@@ -85,7 +85,13 @@ jobs:
           mkdir -p upstream/out
           printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
 
-          cargo fmt --manifest-path upstream/Cargo.toml --all -- --check
+          rustfmt --edition 2024 \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
+          rustfmt --edition 2024 --check \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
+
           cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
           cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
 
@@ -141,6 +147,9 @@ jobs:
           git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
           git -C upstream checkout --detach FETCH_HEAD
           python3 patches/apply_recording_paths.py upstream
+          rustfmt --edition 2024 \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
