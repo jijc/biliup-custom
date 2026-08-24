@@ -7,6 +7,12 @@ on:
     paths:
       - 'patches/0001-recording-paths.patch'
       - '.github/workflows/red-path-tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'patches/0001-recording-paths.patch'
+      - '.github/workflows/red-path-tests.yml'
 
 permissions:
   contents: read
@@ -54,6 +60,7 @@ jobs:
           echo "core_status=$core_status" >> "$GITHUB_OUTPUT"
 
       - name: Publish RED evidence as a temporary issue
+        if: ${{ github.event_name == 'push' }}
         uses: actions/github-script@v7
         env:
           CLI_STATUS: ${{ steps.red.outputs.cli_status }}
