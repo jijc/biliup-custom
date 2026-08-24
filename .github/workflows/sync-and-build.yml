@@ -78,15 +78,10 @@ jobs:
           echo "last_sha=$last_sha"
           echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
 
-      - name: Apply patches and run focused tests
+      - name: Apply custom patcher and run focused tests
         if: ${{ steps.decision.outputs.should_build == 'true' }}
         run: |
-          for patch in patches/*.patch; do
-            echo "Applying $patch"
-            git -C upstream apply --check "../$patch"
-            git -C upstream apply "../$patch"
-          done
-
+          python3 patches/apply_recording_paths.py upstream
           mkdir -p upstream/out
           printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
 
@@ -113,11 +108,7 @@ jobs:
               '',
               'No custom `latest` image was overwritten. Review the official capability once, map the filename/output settings, then retire the custom patch if it is equivalent.'
             ].join('\n');
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open'
-            });
+            const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             const existing = issues.find(i => i.title === title);
             if (existing) {
               await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body });
@@ -141,7 +132,7 @@ jobs:
       - name: Checkout custom repo
         uses: actions/checkout@v4
 
-      - name: Checkout exact upstream commit and apply patches
+      - name: Checkout exact upstream commit and apply custom patcher
         env:
           UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
         run: |
@@ -149,10 +140,7 @@ jobs:
           git -C upstream remote add origin https://github.com/biliup/biliup.git
           git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
           git -C upstream checkout --detach FETCH_HEAD
-          for patch in patches/*.patch; do
-            git -C upstream apply --check "../$patch"
-            git -C upstream apply "../$patch"
-          done
+          python3 patches/apply_recording_paths.py upstream
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -258,18 +246,9 @@ jobs:
         with:
           script: |
             const title = '[sync-failure] biliup-custom could not follow upstream';
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open'
-            });
+            const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             for (const issue of issues.filter(i => i.title === title)) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: 'closed'
-              });
+              await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed' });
             }
 
   failure-notice:
@@ -289,7 +268,7 @@ jobs:
           script: |
             const title = '[sync-failure] biliup-custom could not follow upstream';
             const body = [
-              'The automatic upstream sync/build failed. The previously published `latest` image was not replaced.',
+              'The automatic upstream sync/build workflow failed. Tests and image builds must succeed before `latest` is published; if the failure happened during final bookkeeping, inspect the run to confirm whether a validated image was already published.',
               '',
               `Upstream commit: \`${process.env.UPSTREAM_SHA || 'unknown'}\``,
               `prepare: ${process.env.PREPARE_RESULT}`,
@@ -298,11 +277,7 @@ jobs:
               '',
               `Actions run: ${process.env.RUN_URL}`
             ].join('\n');
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open'
-            });
+            const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             const existing = issues.find(i => i.title === title);
             if (existing) {
               await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body });
