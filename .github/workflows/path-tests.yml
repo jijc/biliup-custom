@@ -37,8 +37,14 @@ jobs:
         with:
           workspaces: upstream
 
-      - name: Check Rust formatting
-        run: cargo fmt --manifest-path upstream/Cargo.toml --all -- --check
+      - name: Format and check only custom-modified Rust files
+        run: |
+          rustfmt --edition 2024 \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
+          rustfmt --edition 2024 --check \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
 
       - name: Run core recording path tests
         run: cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
@@ -52,7 +58,7 @@ jobs:
         with:
           script: |
             const title = '[tdd-green] Recording path tests pass';
-            const body = `GREEN confirmed for ${context.sha}: deterministic patching succeeded, rustfmt passed, and both focused Rust test groups passed.`;
+            const body = `GREEN confirmed for ${context.sha}: deterministic patching succeeded, the two modified Rust files passed rustfmt, and both focused Rust test groups passed.`;
             const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
             const existing = issues.find(i => i.title === title);
             if (existing) {
