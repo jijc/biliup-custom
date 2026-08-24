@@ -1,0 +1,39 @@
+name: Recording path tests
+
+on:
+  push:
+    branches:
+      - implement/recording-paths
+    paths:
+      - 'patches/0001-recording-paths.patch'
+      - '.github/workflows/path-tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'patches/0001-recording-paths.patch'
+      - '.github/workflows/path-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v4
+
+      - name: Checkout current upstream and apply patch
+        run: |
+          git clone --depth 1 https://github.com/biliup/biliup.git upstream
+          git -C upstream apply --check ../patches/0001-recording-paths.patch
+          git -C upstream apply ../patches/0001-recording-paths.patch
+          mkdir -p upstream/out
+          printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
+
+      - name: Run core recording path tests
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup downloader::util::tests -- --nocapture
+
+      - name: Run server recording path tests
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli server::common::util::tests -- --nocapture
