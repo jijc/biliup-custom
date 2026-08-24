@@ -1,0 +1,93 @@
+diff --git a/crates/biliup-cli/src/server/common/util.rs b/crates/biliup-cli/src/server/common/util.rs
+--- a/crates/biliup-cli/src/server/common/util.rs
++++ b/crates/biliup-cli/src/server/common/util.rs
+@@ -171,7 +171,62 @@ pub fn parse_time(segment_time: &str) -> std::time::Duration {
+ 
+ #[cfg(test)]
+ mod tests {
+-    use crate::server::common::util::media_ext_from_url;
++    use super::{logical_record_date_naive, media_ext_from_url, Recorder};
++    use crate::server::infrastructure::models::StreamerInfo;
++    use chrono::{NaiveDate, Utc};
++
++    fn test_streamer_info(name: &str, title: &str) -> StreamerInfo {
++        StreamerInfo::new(name, "https://example.com/live", title, Utc::now(), "")
++    }
++
++    #[test]
++    fn legacy_template_keeps_flat_sanitization() {
++        let info = test_streamer_info("主播/甲", "标题/一");
++        let recorder = Recorder::new(
++            Some("{streamer}/[%Y-%m-%d][{title}]".to_string()),
++            info,
++        );
++        assert_eq!(
++            recorder.filename_template(),
++            "主播_甲_[%Y-%m-%d][标题_一]"
++        );
++    }
++
++    #[test]
++    fn recording_template_preserves_only_declared_directories() {
++        let info = test_streamer_info("主播/甲", "标题:一/二?");
++        let recorder = Recorder::new(
++            Some("/recordings/{streamer}/{record_date}/[%Y-%m-%d][{title}]".to_string()),
++            info,
++        );
++        assert_eq!(
++            recorder.filename_template(),
++            "/recordings/主播_甲/{record_date}/[%Y-%m-%d][标题_一_二_]"
++        );
++    }
++
++    #[test]
++    fn recording_template_neutralizes_dot_components() {
++        let info = test_streamer_info("..", ".");
++        let recorder = Recorder::new(
++            Some("/recordings/{streamer}/{record_date}/{title}".to_string()),
++            info,
++        );
++        assert_eq!(recorder.filename_template(), "/recordings/_/{record_date}/_");
++    }
++
++    #[test]
++    fn logical_day_changes_at_four_am() {
++        let before = NaiveDate::from_ymd_opt(2026, 8, 25)
++            .unwrap()
++            .and_hms_opt(3, 59, 59)
++            .unwrap();
++        let at_boundary = NaiveDate::from_ymd_opt(2026, 8, 25)
++            .unwrap()
++            .and_hms_opt(4, 0, 0)
++            .unwrap();
++        assert_eq!(logical_record_date_naive(before), "2026-08-24");
++        assert_eq!(logical_record_date_naive(at_boundary), "2026-08-25");
++    }
+ 
+     #[test]
+     fn it_works() {
+diff --git a/crates/biliup/src/downloader/util.rs b/crates/biliup/src/downloader/util.rs
+--- a/crates/biliup/src/downloader/util.rs
++++ b/crates/biliup/src/downloader/util.rs
+@@ -287,6 +287,20 @@ mod tests {
+     use super::*;
+     use std::path::{Path, PathBuf};
+ 
++    #[test]
++    fn format_filename_at_keeps_real_time_but_shifts_record_date() {
++        let dt = chrono::NaiveDate::from_ymd_opt(2026, 8, 25)
++            .unwrap()
++            .and_hms_opt(2, 10, 0)
++            .unwrap();
++        assert_eq!(
++            format_filename_at(
++                "/recordings/主播/{record_date}/[%Y年%m月%d日-%H时%M分%S秒]",
++                dt
++            ),
++            "/recordings/主播/2026-08-24/[2026年08月25日-02时10分00秒]"
++        );
++    }
++
+     #[test]
+     fn it_works() -> Result<(), Box<dyn std::error::Error>> {
+         let mut p = PathBuf::from("/feel/the");
