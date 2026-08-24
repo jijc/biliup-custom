@@ -6,6 +6,8 @@ on:
       - implement/recording-paths
     paths:
       - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
       - '.github/workflows/path-tests.yml'
       - '.github/workflows/sync-and-build.yml'
   pull_request:
@@ -13,6 +15,8 @@ on:
       - main
     paths:
       - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
       - '.github/workflows/path-tests.yml'
       - '.github/workflows/sync-and-build.yml'
 
@@ -25,6 +29,9 @@ jobs:
     steps:
       - name: Checkout custom repo
         uses: actions/checkout@v4
+
+      - name: Run upstream capability probe tests
+        run: python3 -m unittest tests/test_check_upstream_native.py -v
 
       - name: Checkout current upstream and apply custom patcher
         run: |
