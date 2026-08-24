@@ -71,6 +71,8 @@ GitHub Container Registry 的包可见性与仓库可见性相互独立。首次
 5. 两个架构都成功后，先发布并检查 `ghcr.io/jijc/biliup-custom:upstream-<官方commit短SHA>`，确认 manifest 同时包含 amd64/arm64 后再把同一候选版本晋升为 `ghcr.io/jijc/biliup-custom:latest`。
 6. 构建失败时不覆盖现有 `latest`，并创建/更新 GitHub Issue；后续恢复成功会记录恢复信息并关闭失败 Issue。
 
+首次合并前 `state/upstream-sha.txt` 为 `UNBUILT`。只有多架构镜像发布并校验成功后，工作流才会把它替换成对应的 40 位官方 upstream commit SHA。
+
 ## 官方未来原生支持时
 
 本项目不打算永久维护一个 fork。如果检测到官方配置/源码出现等价的输出目录或逻辑日期能力，自动同步会暂停发布新 `latest` 并创建提示 Issue，让人确认一次官方参数映射。
