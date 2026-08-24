@@ -33,8 +33,10 @@ jobs:
       - name: Run upstream capability probe tests
         run: python3 -m unittest tests/test_check_upstream_native.py -v
 
-      - name: Validate publish workflow YAML
-        run: ruby -e "require 'yaml'; YAML.load_file('.github/workflows/sync-and-build.yml', aliases: true); puts 'workflow yaml ok'"
+      - name: Validate workflow YAML and GitHub Actions expressions
+        run: |
+          ruby -e "require 'yaml'; YAML.load_file('.github/workflows/sync-and-build.yml', aliases: true); puts 'workflow yaml ok'"
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml
 
       - name: Checkout current upstream and apply custom patcher
         run: |
