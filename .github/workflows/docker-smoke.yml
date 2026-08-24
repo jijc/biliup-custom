@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout custom repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout current upstream and apply custom patcher
         run: |
