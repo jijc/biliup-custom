@@ -10,18 +10,23 @@ rm -rf "$UPSTREAM_DIR"
 git clone --no-tags https://github.com/biliup/biliup.git "$UPSTREAM_DIR"
 git -C "$UPSTREAM_DIR" checkout --detach "$UPSTREAM_SHA"
 
-set +e
-python "$ROOT/scripts/modify_upstream.py" "$UPSTREAM_DIR"
-MODIFIER_RC=$?
-set -e
+run_modifier() {
+  local script="$1"
+  set +e
+  python "$ROOT/scripts/$script" "$UPSTREAM_DIR"
+  local rc=$?
+  set -e
+  if [[ "$rc" -eq 42 ]]; then
+    echo "native-review: $script"
+    exit 42
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    exit "$rc"
+  fi
+}
 
-if [[ "$MODIFIER_RC" -eq 42 ]]; then
-  echo "native-review"
-  exit 42
-fi
-if [[ "$MODIFIER_RC" -ne 0 ]]; then
-  exit "$MODIFIER_RC"
-fi
+run_modifier modify_upstream.py
+run_modifier restore_segment_mp4.py
 
 # biliup-cli embeds the already-built WebUI at compile time. The official
 # Dockerfile builds it first; focused Rust tests only need the directory to
@@ -30,4 +35,5 @@ mkdir -p "$UPSTREAM_DIR/out"
 printf '<!doctype html><title>biliup-custom test fixture</title>\n' > "$UPSTREAM_DIR/out/index.html"
 
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_recording_path_tests -- --nocapture
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_auto_mp4_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup biliup_custom_record_date_tests -- --nocapture
