@@ -86,6 +86,7 @@ jobs:
           git -C "$UPSTREAM_DIR" checkout --detach "${{ needs.resolve.outputs.upstream_sha }}"
           python scripts/modify_upstream.py "$UPSTREAM_DIR"
           python scripts/restore_segment_mp4.py "$UPSTREAM_DIR"
+          python scripts/restore_server_log.py "$UPSTREAM_DIR"
           python scripts/apply_product_customizations.py "$UPSTREAM_DIR"
 
       - name: Set up Docker Buildx
