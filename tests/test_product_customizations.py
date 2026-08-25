@@ -130,6 +130,32 @@ STATUS_TSX = r'''return (
 )
 '''
 
+STREAMERS_TSX = r'''  const data: LiveStreamerEntity[] | undefined = streamers?.map(live => {
+    let statusTag
+    switch (live.status) {
+      case 'Working':
+        statusTag = <Tag color="red">直播中</Tag>
+        break
+      case 'Idle':
+        statusTag = <Tag color="green">空闲</Tag>
+        break
+      case 'Pending':
+        statusTag = <Tag color="indigo">检测中</Tag>
+        break
+      case 'OutOfSchedule':
+        statusTag = <Tag color="green">非录播时间</Tag>
+        break
+      case 'TitleExcluded':
+        statusTag = <Tag color="orange">标题已排除</Tag>
+        break
+      case 'Pause':
+        statusTag = <Tag color="pink">暂停中</Tag>
+        break
+    }
+    return { ...handleEntityPostprocessor(live), statusTag }
+  })
+'''
+
 
 def make_upstream(root: Path) -> None:
     files = {
@@ -139,6 +165,7 @@ def make_upstream(root: Path) -> None:
         "crates/biliup-cli/src/server/core/monitor.rs": MONITOR_RS,
         "app/(app)/job/page.tsx": JOB_TSX,
         "app/(app)/status/page.tsx": STATUS_TSX,
+        "app/(app)/streamers/page.tsx": STREAMERS_TSX,
     }
     for rel, content in files.items():
         path = root / rel
@@ -194,6 +221,21 @@ class ProductCustomizationTests(unittest.TestCase):
             self.assertIn('.semi-layout-content > main > ul', status)
             self.assertIn('height: 100%', status)
 
+    def test_streamer_status_tags_match_recording_meaning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_upstream(root)
+            result = self.run_modifier(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            streamers = (root / "app/(app)/streamers/page.tsx").read_text(encoding="utf-8")
+            self.assertIn('biliup-custom:streamer-status-tags:v1', streamers)
+            self.assertIn('<Tag color="red">录制中</Tag>', streamers)
+            self.assertIn('<Tag color="blue">空闲</Tag>', streamers)
+            self.assertIn('<Tag color="green">检测中</Tag>', streamers)
+            self.assertIn('<Tag color="grey">暂停中</Tag>', streamers)
+            self.assertNotIn('<Tag color="red">直播中</Tag>', streamers)
+
     def test_modifier_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -204,7 +246,9 @@ class ProductCustomizationTests(unittest.TestCase):
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
 
             repositories = (root / "crates/biliup-cli/src/server/infrastructure/repositories.rs").read_text(encoding="utf-8")
+            streamers = (root / "app/(app)/streamers/page.tsx").read_text(encoding="utf-8")
             self.assertEqual(repositories.count("biliup-custom:persistent-pause:v1"), 1)
+            self.assertEqual(streamers.count("biliup-custom:streamer-status-tags:v1"), 1)
 
 
 if __name__ == "__main__":
