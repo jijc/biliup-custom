@@ -6,7 +6,7 @@ from pathlib import Path
 
 MARKER = "// biliup-custom:auto-mp4:v1"
 NATIVE_REVIEW = 42
-DOWNLOAD_REL = Path("crates/biliup-cli/src/server/common/download.rs")
+UPLOAD_REL = Path("crates/biliup-cli/src/server/common/upload.rs")
 
 
 class ModifyError(RuntimeError):
@@ -86,7 +86,7 @@ def _replace_function(text: str, signature: str, replacement: str) -> str:
     return text[:start] + replacement.rstrip() + "\n" + text[end:]
 
 
-DOWNLOAD_HELPERS = r'''// biliup-custom:auto-mp4:v1
+UPLOAD_HELPERS = r'''// biliup-custom:auto-mp4:v1
 fn mp4_target_for_finished_flv(src: &std::path::Path) -> Option<std::path::PathBuf> {
     // Finalized segments end in .flv. Active recordings end in .part, so they
     // are intentionally ignored and can never be touched by the converter.
@@ -108,7 +108,7 @@ async fn remux_completed_flv_to_mp4(
     if let Ok(meta) = tokio::fs::metadata(&dst).await {
         if meta.len() > 0 {
             if let Err(e) = tokio::fs::remove_file(src).await {
-                warn!(source = %src.display(), error = ?e, "MP4 exists but source FLV could not be removed");
+                tracing::warn!(source = %src.display(), error = ?e, "MP4 exists but source FLV could not be removed");
             }
             return Ok(dst);
         }
@@ -187,7 +187,7 @@ async fn remux_completed_flv_to_mp4(
 
     // The source is deleted only after a valid MP4 has been finalized.
     if let Err(e) = tokio::fs::remove_file(src).await {
-        warn!(source = %src.display(), error = ?e, "MP4 conversion succeeded but source FLV could not be removed");
+        tracing::warn!(source = %src.display(), error = ?e, "MP4 conversion succeeded but source FLV could not be removed");
     }
 
     info!(
@@ -258,26 +258,26 @@ where
 
 
 def modify(upstream: Path) -> None:
-    download_path = upstream / DOWNLOAD_REL
-    if not download_path.is_file():
-        raise ModifyError(f"required upstream file missing: {download_path}")
+    upload_path = upstream / UPLOAD_REL
+    if not upload_path.is_file():
+        raise ModifyError(f"required upstream file missing: {upload_path}")
 
-    download = download_path.read_text(encoding="utf-8")
-    if MARKER in download:
+    upload = upload_path.read_text(encoding="utf-8")
+    if MARKER in upload:
         print("already-modified")
         return
 
     # If upstream grows an equivalent implementation, stop for human review
     # instead of stacking another converter on top of it.
-    if "remux_completed_flv_to_mp4" in download:
+    if "remux_completed_flv_to_mp4" in upload:
         print("native-review: upstream already contains FLV to MP4 remux logic")
         raise SystemExit(NATIVE_REVIEW)
 
     signature = "async fn process_without_upload<F>"
-    start, _ = _function_span(download, signature)
-    download = download[:start] + DOWNLOAD_HELPERS + "\n\n" + download[start:]
-    download = _replace_function(download, signature, PROCESS_WITHOUT_UPLOAD)
-    download_path.write_text(download, encoding="utf-8")
+    start, _ = _function_span(upload, signature)
+    upload = upload[:start] + UPLOAD_HELPERS + "\n\n" + upload[start:]
+    upload = _replace_function(upload, signature, PROCESS_WITHOUT_UPLOAD)
+    upload_path.write_text(upload, encoding="utf-8")
     print("modified")
 
 
