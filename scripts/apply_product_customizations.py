@@ -9,6 +9,7 @@ NATIVE_REVIEW = 42
 PAUSE_MARKER = "biliup-custom:persistent-pause:v1"
 HISTORY_MARKER = "biliup-custom:live-history-layout:v1"
 STATUS_MARKER = "biliup-custom:task-platform-height:v1"
+STREAMER_STATUS_MARKER = "biliup-custom:streamer-status-tags:v1"
 
 REPOSITORIES_REL = Path("crates/biliup-cli/src/server/infrastructure/repositories.rs")
 ENDPOINTS_REL = Path("crates/biliup-cli/src/server/api/endpoints.rs")
@@ -16,6 +17,7 @@ LIB_REL = Path("crates/biliup-cli/src/lib.rs")
 MONITOR_REL = Path("crates/biliup-cli/src/server/core/monitor.rs")
 JOB_REL = Path("app/(app)/job/page.tsx")
 STATUS_REL = Path("app/(app)/status/page.tsx")
+STREAMERS_REL = Path("app/(app)/streamers/page.tsx")
 
 
 class ModifyError(RuntimeError):
@@ -326,15 +328,53 @@ def _insert_column_width(text: str, title: str, width: int) -> str:
     return text[: match.start()] + replacement + text[match.end() :]
 
 
+def _modify_streamer_status_tags(text: str) -> str:
+    if STREAMER_STATUS_MARKER in text:
+        return text
+
+    desired = (
+        '<Tag color="red">录制中</Tag>',
+        '<Tag color="blue">空闲</Tag>',
+        '<Tag color="green">检测中</Tag>',
+        '<Tag color="grey">暂停中</Tag>',
+    )
+    if all(item in text for item in desired):
+        print("native-review: upstream appears to have desired streamer status tags")
+        raise SystemExit(NATIVE_REVIEW)
+
+    replacements = (
+        ('statusTag = <Tag color="red">直播中</Tag>', 'statusTag = <Tag color="red">录制中</Tag>'),
+        ('statusTag = <Tag color="green">空闲</Tag>', 'statusTag = <Tag color="blue">空闲</Tag>'),
+        ('statusTag = <Tag color="indigo">检测中</Tag>', 'statusTag = <Tag color="green">检测中</Tag>'),
+        ('statusTag = <Tag color="pink">暂停中</Tag>', 'statusTag = <Tag color="grey">暂停中</Tag>'),
+    )
+    for old, new in replacements:
+        count = text.count(old)
+        if count != 1:
+            raise ModifyError(f"streamer status tag anchor changed: {old} (found {count})")
+        text = text.replace(old, new, 1)
+
+    anchor = "    let statusTag\n"
+    if anchor not in text:
+        raise ModifyError("streamer statusTag declaration anchor changed")
+    return text.replace(
+        anchor,
+        f"    // {STREAMER_STATUS_MARKER}\n" + anchor,
+        1,
+    )
+
+
 def _modify_ui(upstream: Path) -> None:
     job_path = upstream / JOB_REL
     status_path = upstream / STATUS_REL
-    for path in (job_path, status_path):
+    streamers_path = upstream / STREAMERS_REL
+    for path in (job_path, status_path, streamers_path):
         if not path.is_file():
             raise ModifyError(f"required upstream UI file missing: {path}")
 
     job = job_path.read_text(encoding="utf-8")
     status = status_path.read_text(encoding="utf-8")
+    streamers = streamers_path.read_text(encoding="utf-8")
 
     job_marked = HISTORY_MARKER in job
     status_marked = STATUS_MARKER in status
@@ -374,8 +414,11 @@ def _modify_ui(upstream: Path) -> None:
 '''
         status = status.replace(content_close, css + content_close, 1)
 
-        job_path.write_text(job, encoding="utf-8")
-        status_path.write_text(status, encoding="utf-8")
+    streamers = _modify_streamer_status_tags(streamers)
+
+    job_path.write_text(job, encoding="utf-8")
+    status_path.write_text(status, encoding="utf-8")
+    streamers_path.write_text(streamers, encoding="utf-8")
 
 
 def modify(upstream: Path) -> None:

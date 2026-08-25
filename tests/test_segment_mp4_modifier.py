@@ -22,6 +22,25 @@ where
     }
     execute_postprocessor(paths, ctx).await
 }
+
+async fn process_actor_branch() -> AppResult<()> {
+    let result = match ctx.upload_config() {
+        Some(config) if config.is_noop_uploader() => {
+            process_without_upload(inspect, &ctx).await
+        }
+        Some(config) => process_with_upload(inspect, &ctx, config).await,
+        None => {
+            let mut paths = Vec::new();
+            pin!(inspect);
+            while let Some(event) = inspect.next().await {
+                paths.extend(segment_paths(&event));
+            }
+            // 无上传配置时，直接执行后处理
+            execute_postprocessor(paths, &ctx).await
+        }
+    };
+    result
+}
 '''
 
 
@@ -62,6 +81,26 @@ class SegmentMp4ModifierTests(unittest.TestCase):
                 upload,
             )
             self.assertIn("*video_path = converted;", upload)
+
+    def test_no_upload_template_uses_the_same_mp4_pipeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_upstream(root)
+            result = self.run_modifier(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            upload = (
+                root / "crates/biliup-cli/src/server/common/upload.rs"
+            ).read_text(encoding="utf-8")
+
+            self.assertIn(
+                "None => process_without_upload(inspect, &ctx).await,",
+                upload,
+            )
+            self.assertNotIn(
+                "// 无上传配置时，直接执行后处理",
+                upload,
+            )
 
     def test_modifier_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
