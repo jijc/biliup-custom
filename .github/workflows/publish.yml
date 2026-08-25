@@ -85,6 +85,7 @@ jobs:
           git clone --no-tags https://github.com/biliup/biliup.git "$UPSTREAM_DIR"
           git -C "$UPSTREAM_DIR" checkout --detach "${{ needs.resolve.outputs.upstream_sha }}"
           python scripts/modify_upstream.py "$UPSTREAM_DIR"
+          python scripts/restore_segment_mp4.py "$UPSTREAM_DIR"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
