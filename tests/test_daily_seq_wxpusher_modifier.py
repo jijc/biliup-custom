@@ -5,7 +5,10 @@ import unittest
 from pathlib import Path
 
 
-MODIFIER = "scripts/add_daily_seq_wxpusher.py"
+MODIFIERS = [
+    "scripts/add_daily_seq_wxpusher.py",
+    "scripts/fix_daily_seq_temp_filename.py",
+]
 
 
 def make_upstream(root: Path) -> None:
@@ -13,6 +16,40 @@ def make_upstream(root: Path) -> None:
     common.mkdir(parents=True, exist_ok=True)
     (common / "mod.rs").write_text(
         "pub mod download;\npub mod upload;\npub mod util;\n",
+        encoding="utf-8",
+    )
+    (common / "util.rs").write_text(
+        r'''// biliup-custom:auto-modifier:v1
+fn render_record_date(template: &str, dt: chrono::NaiveDateTime) -> String {
+    template.replace("{record_date}", "2026-08-25")
+}
+
+impl Recorder {
+    pub fn filename_template(&self) -> String {
+        "/recordings/主播/{record_date}/{daily_seq}-[%Y%m%d-%H%M%S]".to_string()
+    }
+
+    pub fn generate_filename(&self, suffix: &str) -> String {
+        let template = self.filename_template();
+        let mut t = Local::now();
+        loop {
+            let rendered = render_record_date(&template, t.naive_local());
+            let base = t.format(&rendered).to_string();
+            if !self.exists_with_suffix(&base, suffix) {
+                return base;
+            }
+            t += Duration::seconds(1);
+        }
+    }
+
+    pub fn format_filename(&self) -> String {
+        let template = self.filename_template();
+        let t = self.streamer_info.date.with_timezone(&Local);
+        let rendered = render_record_date(&template, t.naive_local());
+        t.format(&rendered).to_string()
+    }
+}
+''',
         encoding="utf-8",
     )
     (common / "download.rs").write_text(
@@ -160,11 +197,16 @@ where
 
 class DailySeqWxPusherModifierTests(unittest.TestCase):
     def run_modifier(self, root: Path):
-        return subprocess.run(
-            [sys.executable, MODIFIER, str(root)],
-            text=True,
-            capture_output=True,
-        )
+        result = None
+        for modifier in MODIFIERS:
+            result = subprocess.run(
+                [sys.executable, modifier, str(root)],
+                text=True,
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                return result
+        return result
 
     def test_sequence_is_assigned_after_mp4_conversion_and_before_upload(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -174,12 +216,27 @@ class DailySeqWxPusherModifierTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             upload = (root / "crates/biliup-cli/src/server/common/upload.rs").read_text(encoding="utf-8")
             self.assertIn('const DAILY_SEQ_TOKEN: &str = "{daily_seq}";', upload)
-            self.assertIn("finalize_daily_sequence(&mut paths).await", upload)
+            self.assertIn("finalize_daily_sequence(&mut paths, ctx).await", upload)
             self.assertLess(
                 upload.index("remux_completed_flv_to_mp4"),
-                upload.index("finalize_daily_sequence(&mut paths).await"),
+                upload.index("finalize_daily_sequence(&mut paths, ctx).await"),
             )
             self.assertIn("pipeline_upload_videos(rx, &upload_context, &segment_processors, ctx)", upload)
+
+    def test_temp_recording_name_does_not_expose_daily_seq_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_upstream(root)
+            result = self.run_modifier(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            common = root / "crates/biliup-cli/src/server/common"
+            util = (common / "util.rs").read_text(encoding="utf-8")
+            upload = (common / "upload.rs").read_text(encoding="utf-8")
+            self.assertIn("strip_daily_sequence_token", util)
+            self.assertIn("let rendered = strip_daily_sequence_token(&rendered);", util)
+            self.assertIn("daily_sequence_enabled(ctx)", upload)
+            self.assertIn("finalize_daily_sequence(&mut paths, ctx).await", upload)
+            self.assertIn('format!("{seq:02}-{name}")', upload)
 
     def test_wxpusher_hooks_cover_required_events_without_config_db_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
