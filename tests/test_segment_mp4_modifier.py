@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-DOWNLOAD_RS = r'''use crate::server::infrastructure::models::hook_step::process;
+UPLOAD_RS = r'''use crate::server::infrastructure::models::hook_step::process;
 use std::path::PathBuf;
 
 async fn process_without_upload<F>(
@@ -28,7 +28,7 @@ where
 def make_upstream(root: Path) -> None:
     server_common = root / "crates/biliup-cli/src/server/common"
     server_common.mkdir(parents=True, exist_ok=True)
-    (server_common / "download.rs").write_text(DOWNLOAD_RS, encoding="utf-8")
+    (server_common / "upload.rs").write_text(UPLOAD_RS, encoding="utf-8")
 
 
 class SegmentMp4ModifierTests(unittest.TestCase):
@@ -46,22 +46,22 @@ class SegmentMp4ModifierTests(unittest.TestCase):
             result = self.run_modifier(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-            download = (
-                root / "crates/biliup-cli/src/server/common/download.rs"
+            upload = (
+                root / "crates/biliup-cli/src/server/common/upload.rs"
             ).read_text(encoding="utf-8")
 
-            self.assertIn("biliup-custom:auto-mp4:v1", download)
-            self.assertIn("async fn remux_completed_flv_to_mp4", download)
-            self.assertIn('extension().and_then(|s| s.to_str()) != Some("flv")', download)
-            self.assertIn('Command::new("ffmpeg")', download)
-            self.assertIn('"-c",\n            "copy"', download)
-            self.assertIn('"+faststart"', download)
-            self.assertIn("remove_file(src).await", download)
+            self.assertIn("biliup-custom:auto-mp4:v1", upload)
+            self.assertIn("async fn remux_completed_flv_to_mp4", upload)
+            self.assertIn('extension().and_then(|s| s.to_str()) != Some("flv")', upload)
+            self.assertIn('Command::new("ffmpeg")', upload)
+            self.assertIn('"-c",\n            "copy"', upload)
+            self.assertIn('"+faststart"', upload)
+            self.assertIn("remove_file(src).await", upload)
             self.assertIn(
                 "remux_completed_flv_to_mp4(&event.prev_file_path).await",
-                download,
+                upload,
             )
-            self.assertIn("*video_path = converted;", download)
+            self.assertIn("*video_path = converted;", upload)
 
     def test_modifier_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,10 +72,10 @@ class SegmentMp4ModifierTests(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
 
-            download = (
-                root / "crates/biliup-cli/src/server/common/download.rs"
+            upload = (
+                root / "crates/biliup-cli/src/server/common/upload.rs"
             ).read_text(encoding="utf-8")
-            self.assertEqual(download.count("biliup-custom:auto-mp4:v1"), 1)
+            self.assertEqual(upload.count("biliup-custom:auto-mp4:v1"), 1)
 
 
 if __name__ == "__main__":
