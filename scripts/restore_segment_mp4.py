@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -256,16 +257,18 @@ where
 }
 '''
 
-NO_UPLOAD_INLINE = r'''                    None => {
-                        let mut paths = Vec::new();
-                        pin!(inspect);
-                        while let Some(event) = inspect.next().await {
-                            paths.extend(segment_paths(&event));
-                        }
-                        execute_postprocessor(paths, &ctx).await
-                    }'''
-
-NO_UPLOAD_DELEGATE = "                    None => process_without_upload(inspect, &ctx).await,"
+NO_UPLOAD_INLINE_RE = re.compile(
+    r"(?P<indent>^[ \t]*)None => \{\n"
+    r"(?P=indent)    let mut paths = Vec::new\(\);\n"
+    r"(?P=indent)    pin!\(inspect\);\n"
+    r"(?P=indent)    while let Some\(event\) = inspect\.next\(\)\.await \{\n"
+    r"(?P=indent)        paths\.extend\(segment_paths\(&event\)\);\n"
+    r"(?P=indent)    \}\n"
+    r"(?P=indent)    // 无上传配置时，直接执行后处理\n"
+    r"(?P=indent)    execute_postprocessor\(paths, &ctx\)\.await\n"
+    r"(?P=indent)\}",
+    re.MULTILINE,
+)
 
 
 def modify(upstream: Path) -> None:
@@ -289,13 +292,16 @@ def modify(upstream: Path) -> None:
     upload = upload[:start] + UPLOAD_HELPERS + "\n\n" + upload[start:]
     upload = _replace_function(upload, signature, PROCESS_WITHOUT_UPLOAD)
 
-    # When no upload template is selected, upstream currently duplicates the
-    # no-upload loop inline instead of calling process_without_upload(). Route
-    # that branch through the shared function so MP4 remuxing also applies to
-    # the user's normal "record only" configuration.
-    if NO_UPLOAD_INLINE not in upload:
-        raise ModifyError("no-upload inline branch shape changed")
-    upload = upload.replace(NO_UPLOAD_INLINE, NO_UPLOAD_DELEGATE, 1)
+    # When no upload template is selected, upstream duplicates the no-upload
+    # loop inline instead of calling process_without_upload(). Match that one
+    # exact structural block (whitespace-independent) and route it through the
+    # shared function. Any semantic upstream change still fails the build.
+    matches = list(NO_UPLOAD_INLINE_RE.finditer(upload))
+    if len(matches) != 1:
+        raise ModifyError(f"expected one no-upload inline branch, found {len(matches)}")
+    match = matches[0]
+    replacement = f"{match.group('indent')}None => process_without_upload(inspect, &ctx).await,"
+    upload = upload[: match.start()] + replacement + upload[match.end() :]
 
     upload_path.write_text(upload, encoding="utf-8")
     print("modified")
