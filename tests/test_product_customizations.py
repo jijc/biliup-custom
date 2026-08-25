@@ -90,36 +90,43 @@ MONITOR_RS = r'''impl Monitor {
 }
 '''
 
-JOB_TSX = r'''const columns = [
-  {
-    title: '名称',
-    dataIndex: 'name',
-  },
-  {
-    title: '标题',
-    dataIndex: 'title',
-  },
-  {
-    title: '链接',
-    dataIndex: 'url',
-  },
-  {
-    title: '封面',
-    dataIndex: 'live_cover_path',
-  },
-  {
-    title: '更新日期',
-    dataIndex: 'date',
-  },
-]
+JOB_TSX = r'''  const columns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+    },
+    {
+      title: '标题',
+      dataIndex: 'title',
+    },
+    {
+      title: '链接',
+      dataIndex: 'url',
+    },
+    {
+      title: '封面',
+      dataIndex: 'live_cover_path',
+    },
+    {
+      title: '更新日期',
+      dataIndex: 'date',
+    },
+  ]
 '''
 
 STATUS_TSX = r'''return (
-  <Content style={{ paddingLeft: 12, paddingRight: 12 }}>
-    <main>
-      <JSONTree data={data} />
-    </main>
-  </Content>
+    <>
+      <Content
+        style={{
+          paddingLeft: 12,
+          paddingRight: 12,
+        }}
+      >
+        <main>
+          <JSONTree data={data} />
+        </main>
+      </Content>
+    </>
 )
 '''
 
@@ -165,7 +172,7 @@ class ProductCustomizationTests(unittest.TestCase):
             self.assertIn('State(pool): State<ConnectionPool>', endpoints)
             self.assertIn('set_streamer_paused(&pool, id, true)', endpoints)
             self.assertIn('set_streamer_paused(&pool, id, false)', endpoints)
-            self.assertIn('is_streamer_paused(&service_register.pool, live_streamer.id)', lib)
+            self.assertIn('is_streamer_paused(&service_register.pool, worker.id())', lib)
             self.assertIn('WorkerStatus::Pause', lib)
             self.assertIn('initially_paused', monitor)
             self.assertIn('self.make_waker(worker.id()).await', monitor)
@@ -180,9 +187,9 @@ class ProductCustomizationTests(unittest.TestCase):
             job = (root / "app/(app)/job/page.tsx").read_text(encoding="utf-8")
             status = (root / "app/(app)/status/page.tsx").read_text(encoding="utf-8")
 
-            self.assertIn("title: '名称',\n    width: 180,", job)
-            self.assertIn("title: '标题',\n    width: 360,", job)
-            self.assertIn("title: '封面',\n    width: 120,", job)
+            self.assertIn("title: '名称',\n      width: 180,", job)
+            self.assertIn("title: '标题',\n      width: 360,", job)
+            self.assertIn("title: '封面',\n      width: 120,", job)
             self.assertIn("<main style={{ height: '100%' }}>", status)
             self.assertIn('.semi-layout-content > main > ul', status)
             self.assertIn('height: 100%', status)
