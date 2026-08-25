@@ -29,6 +29,7 @@ run_modifier modify_upstream.py
 run_modifier restore_segment_mp4.py
 run_modifier add_daily_seq_wxpusher.py
 run_modifier fix_daily_seq_temp_filename.py
+run_modifier fix_daily_seq_stream_gears.py
 run_modifier restore_server_log.py
 run_modifier apply_product_customizations.py
 
@@ -42,5 +43,6 @@ cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custo
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_auto_mp4_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_daily_sequence_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_daily_seq_temp_tests -- --nocapture
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_stream_gears_filename_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_wxpusher_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup biliup_custom_record_date_tests -- --nocapture
