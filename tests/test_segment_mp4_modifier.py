@@ -24,7 +24,7 @@ where
 }
 
 async fn process_actor_branch() -> AppResult<()> {
-    let result = match upload_config.as_ref() {
+    let result = match ctx.upload_config() {
         Some(config) if config.is_noop_uploader() => {
             process_without_upload(inspect, &ctx).await
         }
@@ -35,6 +35,7 @@ async fn process_actor_branch() -> AppResult<()> {
             while let Some(event) = inspect.next().await {
                 paths.extend(segment_paths(&event));
             }
+            // 无上传配置时，直接执行后处理
             execute_postprocessor(paths, &ctx).await
         }
     };
@@ -97,7 +98,7 @@ class SegmentMp4ModifierTests(unittest.TestCase):
                 upload,
             )
             self.assertNotIn(
-                "None => {\n            let mut paths = Vec::new();",
+                "// 无上传配置时，直接执行后处理",
                 upload,
             )
 
