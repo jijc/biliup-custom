@@ -13,6 +13,7 @@ git clone --no-tags https://github.com/biliup/biliup.git "$UPSTREAM_DIR"
 git -C "$UPSTREAM_DIR" checkout --detach "$UPSTREAM_SHA"
 
 python "$ROOT/scripts/modify_upstream.py" "$UPSTREAM_DIR"
+python "$ROOT/scripts/restore_segment_mp4.py" "$UPSTREAM_DIR"
 
 docker build \
   --label "org.opencontainers.image.source=https://github.com/jijc/biliup-custom" \
