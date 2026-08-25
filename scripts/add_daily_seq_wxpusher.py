@@ -271,7 +271,7 @@ async fn finalize_daily_sequence(paths: &mut [PathBuf]) -> AppResult<()> {
 }
 
 fn notification_streamer(ctx: &Context) -> String {
-    ctx.streamer_info().name
+    ctx.streamer_info().name.clone()
 }
 
 #[cfg(test)]
@@ -503,7 +503,6 @@ def _modify_download(download: str) -> str:
     if "use crate::server::common::wxpusher;" not in download:
         import_anchor = "use crate::server::common::util::FileValidator;\n"
         if import_anchor not in download:
-            # test fixture / compatible upstream fallback
             import_anchor = "use crate::server::common::recording_policy;\n"
         download = _replace_once(
             download,
@@ -515,7 +514,7 @@ def _modify_download(download: str) -> str:
     download = _replace_once(
         download,
         "        let mut retry_count = 0;",
-        "        let mut retry_count = 0;\n        let mut last_check_offline = false;",
+        "        let mut retry_count = 0;\n        let mut last_check_offline: bool;",
         "retry counter",
     )
 
