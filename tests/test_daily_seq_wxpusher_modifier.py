@@ -5,7 +5,10 @@ import unittest
 from pathlib import Path
 
 
-MODIFIER = "scripts/add_daily_seq_wxpusher.py"
+MODIFIERS = [
+    "scripts/add_daily_seq_wxpusher.py",
+    "scripts/fix_daily_seq_temp_filename.py",
+]
 
 
 def make_upstream(root: Path) -> None:
@@ -194,11 +197,16 @@ where
 
 class DailySeqWxPusherModifierTests(unittest.TestCase):
     def run_modifier(self, root: Path):
-        return subprocess.run(
-            [sys.executable, MODIFIER, str(root)],
-            text=True,
-            capture_output=True,
-        )
+        result = None
+        for modifier in MODIFIERS:
+            result = subprocess.run(
+                [sys.executable, modifier, str(root)],
+                text=True,
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                return result
+        return result
 
     def test_sequence_is_assigned_after_mp4_conversion_and_before_upload(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -228,6 +236,7 @@ class DailySeqWxPusherModifierTests(unittest.TestCase):
             self.assertIn("let rendered = strip_daily_sequence_token(&rendered);", util)
             self.assertIn("daily_sequence_enabled(ctx)", upload)
             self.assertIn("finalize_daily_sequence(&mut paths, ctx).await", upload)
+            self.assertIn('format!("{seq:02}-{name}")', upload)
 
     def test_wxpusher_hooks_cover_required_events_without_config_db_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
