@@ -27,6 +27,7 @@ run_modifier() {
 
 run_modifier modify_upstream.py
 run_modifier restore_segment_mp4.py
+run_modifier apply_product_customizations.py
 
 # biliup-cli embeds the already-built WebUI at compile time. The official
 # Dockerfile builds it first; focused Rust tests only need the directory to
