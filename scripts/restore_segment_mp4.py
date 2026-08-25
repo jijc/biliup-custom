@@ -256,6 +256,17 @@ where
 }
 '''
 
+NO_UPLOAD_INLINE = r'''                    None => {
+                        let mut paths = Vec::new();
+                        pin!(inspect);
+                        while let Some(event) = inspect.next().await {
+                            paths.extend(segment_paths(&event));
+                        }
+                        execute_postprocessor(paths, &ctx).await
+                    }'''
+
+NO_UPLOAD_DELEGATE = "                    None => process_without_upload(inspect, &ctx).await,"
+
 
 def modify(upstream: Path) -> None:
     upload_path = upstream / UPLOAD_REL
@@ -277,6 +288,15 @@ def modify(upstream: Path) -> None:
     start, _ = _function_span(upload, signature)
     upload = upload[:start] + UPLOAD_HELPERS + "\n\n" + upload[start:]
     upload = _replace_function(upload, signature, PROCESS_WITHOUT_UPLOAD)
+
+    # When no upload template is selected, upstream currently duplicates the
+    # no-upload loop inline instead of calling process_without_upload(). Route
+    # that branch through the shared function so MP4 remuxing also applies to
+    # the user's normal "record only" configuration.
+    if NO_UPLOAD_INLINE not in upload:
+        raise ModifyError("no-upload inline branch shape changed")
+    upload = upload.replace(NO_UPLOAD_INLINE, NO_UPLOAD_DELEGATE, 1)
+
     upload_path.write_text(upload, encoding="utf-8")
     print("modified")
 
