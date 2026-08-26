@@ -38,6 +38,7 @@ jobs:
           python scripts/fix_daily_seq_stream_gears.py "$UPSTREAM_DIR"
           python scripts/restore_server_log.py "$UPSTREAM_DIR"
           python scripts/apply_product_customizations.py "$UPSTREAM_DIR"
+          python scripts/fix_recordings_browser.py "$UPSTREAM_DIR"
           echo "UPSTREAM_DIR=$UPSTREAM_DIR" >> "$GITHUB_ENV"
 
       - name: Build image with official Dockerfile
