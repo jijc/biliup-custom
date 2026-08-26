@@ -372,11 +372,12 @@ def _modify_history(text: str) -> str:
         return text
     old = "'/static/' + fileName"
     if old not in text:
-        if "encodeURI(fileName" in text:
-            print("native-review: upstream history already encodes nested media paths")
+        if "encodeURIComponent" in text and "split('/')" in text:
+            print("native-review: upstream history already safely encodes nested media paths")
             raise SystemExit(NATIVE_REVIEW)
         raise ModifyError("history media URL anchor changed")
-    text = text.replace(old, "'/static/' + encodeURI(fileName ?? '')", 1)
+    safe_path = "(fileName?.split('/').map(encodeURIComponent).join('/') ?? '')"
+    text = text.replace(old, "'/static/' + " + safe_path, 1)
     anchor = "          <Players"
     if anchor not in text:
         # Unit fixture uses a compact layout.
