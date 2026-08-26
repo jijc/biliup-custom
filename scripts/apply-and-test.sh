@@ -32,6 +32,7 @@ run_modifier fix_daily_seq_temp_filename.py
 run_modifier fix_daily_seq_stream_gears.py
 run_modifier restore_server_log.py
 run_modifier apply_product_customizations.py
+run_modifier fix_recordings_browser.py
 
 # biliup-cli embeds the already-built WebUI at compile time. The official
 # Dockerfile builds it first; focused Rust tests only need the directory to
@@ -45,4 +46,5 @@ cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custo
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_daily_seq_temp_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_stream_gears_filename_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_wxpusher_tests -- --nocapture
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_recordings_path_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup biliup_custom_record_date_tests -- --nocapture
