@@ -170,7 +170,8 @@ class RecordingsBrowserModifierTests(unittest.TestCase):
             self.assertIn('canonical.starts_with(&root)', router)
 
             self.assertIn('biliup-custom:recordings-history:v1', history)
-            self.assertIn("'/static/' + encodeURI(fileName ?? '')", history)
+            self.assertIn("fileName?.split('/').map(encodeURIComponent).join('/') ?? ''", history)
+            self.assertNotIn("encodeURI(fileName", history)
             self.assertIn('biliup-custom:recordings-upload-picker:v1', upload_manager)
             self.assertIn('label: v.name', upload_manager)
             self.assertIn('value: v.name', upload_manager)
