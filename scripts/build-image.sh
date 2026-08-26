@@ -16,6 +16,7 @@ python "$ROOT/scripts/modify_upstream.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/restore_segment_mp4.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/restore_server_log.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/apply_product_customizations.py" "$UPSTREAM_DIR"
+python "$ROOT/scripts/fix_recordings_browser.py" "$UPSTREAM_DIR"
 
 docker build \
   --label "org.opencontainers.image.source=https://github.com/jijc/biliup-custom" \
