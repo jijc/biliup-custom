@@ -21,6 +21,7 @@ python "$ROOT/scripts/fix_daily_seq_stream_gears.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/restore_server_log.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/apply_product_customizations.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/fix_override_streamer_fields.py" "$UPSTREAM_DIR"
+python "$ROOT/scripts/fix_missing_upload_template_safety.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/fix_recordings_browser.py" "$UPSTREAM_DIR"
 
 docker build \
