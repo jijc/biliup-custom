@@ -33,6 +33,7 @@ run_modifier fix_danmaku_recording_path.py
 run_modifier fix_daily_seq_stream_gears.py
 run_modifier restore_server_log.py
 run_modifier apply_product_customizations.py
+run_modifier fix_override_streamer_fields.py
 run_modifier fix_recordings_browser.py
 
 # biliup-cli embeds the already-built WebUI at compile time. The official
