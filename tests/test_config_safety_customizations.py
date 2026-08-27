@@ -193,9 +193,9 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             self.assertNotIn("upload_id?: number;", api)
             self.assertNotIn("split_time?: number;", api)
             self.assertNotIn("split_size?: number;", api)
-            self.assertIn("up_selection_reply: boolean;", api)
-            self.assertIn("up_close_reply: boolean;", api)
-            self.assertIn("up_close_danmu: boolean;", api)
+            self.assertIn("up_selection_reply: boolean | number;", api)
+            self.assertIn("up_close_reply: boolean | number;", api)
+            self.assertIn("up_close_danmu: boolean | number;", api)
 
     def test_upload_template_boolean_flags_round_trip_correctly(self):
         with tempfile.TemporaryDirectory() as tmp:
