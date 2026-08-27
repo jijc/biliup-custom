@@ -93,7 +93,7 @@ pub fn danmaku_filename_template(filename_prefix: Option<&str>, name: &str) -> S
         .unwrap_or_else(|| format!("{}%Y-%m-%dT%H_%M_%S", name));
 
     if template.starts_with(RECORDING_ROOT) {
-        sanitize_recording_template(&template)
+        strip_daily_sequence_token(&sanitize_recording_template(&template))
     } else {
         sanitize_filename(&template)
     }
@@ -175,6 +175,8 @@ def modify(upstream: Path) -> None:
 
     if "const RECORDING_ROOT" not in server or "fn sanitize_recording_template" not in server:
         raise ModifyError("recording path helper missing; run modify_upstream.py first")
+    if "fn strip_daily_sequence_token(template: &str) -> String" not in server:
+        raise ModifyError("daily sequence temp helper missing; run fix_daily_seq_temp_filename.py first")
 
     server = _replace_function(
         server,
