@@ -36,9 +36,52 @@ OVERRIDE_MODAL_TSX = r'''const OverrideModal = () => {
           delete values[key]
         }
       })
-      await onOk(values)
+      const cleanValues = removeCircularReferences(values)
+      await onOk(cleanValues)
     }
   }
+}
+'''
+
+
+API_STREAMER_TS = r'''export interface LiveStreamerEntity {
+  id: number;
+  url: string;
+  remark: string;
+  filename: string;
+  split_time?: number;
+  split_size?: number;
+  upload_id?: number;
+  status?: string;
+  upload_status?: string;
+  statusTag?: React.ReactNode;
+  format?: string;
+  time_range?: string | Date[];
+  excluded_keywords?: string[];
+  preprocessor?: Record<'run', string>[];
+  segment_processor?: Record<'run', string>[];
+  downloaded_processor?: Record<'run', string>[];
+  postprocessor?: (Record<'run' | 'mv', string> | 'rm')[];
+  opt_args?: string[];
+  override?: Record<string, any>;
+}
+
+export interface StudioEntity {
+  id: number;
+  template_name: string;
+  user_cookie: string;
+  up_selection_reply: number;
+  up_close_reply: number;
+  up_close_danmu: number;
+}
+'''
+
+
+UPLOAD_TEMPLATE_EDIT_TSX = r'''let uploadStreamers = {
+  ...data,
+  interaction: (data.up_close_danmu === 1 ? ['up_close_danmu'] : [])
+    .concat(data.up_close_reply === 1 ? ['up_close_reply'] : [])
+    .concat(data.up_selection_reply === 1 ? ['up_selection_reply'] : []),
 }
 '''
 
@@ -101,6 +144,8 @@ def make_safety_upstream(root: Path) -> None:
     make_upstream(root)
     files = {
         "app/ui/OverrideModal.tsx": OVERRIDE_MODAL_TSX,
+        "app/lib/api-streamer.ts": API_STREAMER_TS,
+        "app/(app)/upload-manager/edit/page.tsx": UPLOAD_TEMPLATE_EDIT_TSX,
         "crates/biliup-cli/src/server/common/upload.rs": UPLOAD_RS,
     }
     for rel, content in files.items():
@@ -117,7 +162,7 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_override_modal_preserves_current_streamer_fields(self):
+    def test_override_modal_preserves_current_and_future_streamer_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_safety_upstream(root)
@@ -130,6 +175,39 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             self.assertIn("      'upload_streamers_id',", modal)
             self.assertNotIn("      'filename',", modal)
             self.assertNotIn("      'upload_id',", modal)
+            self.assertNotIn("      'split_time',", modal)
+            self.assertNotIn("      'split_size',", modal)
+            self.assertIn("await onOk({ ...entity, ...cleanValues })", modal)
+
+    def test_live_streamer_types_match_backend_field_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_safety_upstream(root)
+            result = self.run_script("fix_override_streamer_fields.py", root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            api = (root / "app/lib/api-streamer.ts").read_text(encoding="utf-8")
+            self.assertIn("filename_prefix?: string;", api)
+            self.assertIn("upload_streamers_id?: number;", api)
+            self.assertNotIn("filename: string;", api)
+            self.assertNotIn("upload_id?: number;", api)
+            self.assertNotIn("split_time?: number;", api)
+            self.assertNotIn("split_size?: number;", api)
+
+    def test_upload_template_boolean_flags_round_trip_correctly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_safety_upstream(root)
+            result = self.run_script("fix_override_streamer_fields.py", root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            edit = (root / "app/(app)/upload-manager/edit/page.tsx").read_text(encoding="utf-8")
+            self.assertIn("Boolean(data.up_close_danmu)", edit)
+            self.assertIn("Boolean(data.up_close_reply)", edit)
+            self.assertIn("Boolean(data.up_selection_reply)", edit)
+            self.assertNotIn("up_close_danmu === 1", edit)
+            self.assertNotIn("up_close_reply === 1", edit)
+            self.assertNotIn("up_selection_reply === 1", edit)
 
     def test_missing_upload_template_preserves_recording_files(self):
         with tempfile.TemporaryDirectory() as tmp:
