@@ -8,16 +8,20 @@ from test_daily_seq_wxpusher_modifier import make_upstream
 
 
 class ModifierInteractionTests(unittest.TestCase):
-    def test_daily_sequence_modifier_keeps_missing_template_file_safety(self):
+    def test_final_upload_pipeline_keeps_missing_template_file_safety(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_upstream(root)
-            result = subprocess.run(
-                [sys.executable, "scripts/add_daily_seq_wxpusher.py", str(root)],
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for script in (
+                "scripts/add_daily_seq_wxpusher.py",
+                "scripts/fix_missing_upload_template_safety.py",
+            ):
+                result = subprocess.run(
+                    [sys.executable, script, str(root)],
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             upload = (root / "crates/biliup-cli/src/server/common/upload.rs").read_text(
                 encoding="utf-8"
