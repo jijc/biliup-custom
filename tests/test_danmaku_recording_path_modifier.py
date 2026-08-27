@@ -26,6 +26,12 @@ fn sanitize_recording_template(raw: &str) -> String {
     format!("{RECORDING_ROOT}{clean}")
 }
 
+fn strip_daily_sequence_token(template: &str) -> String {
+    template
+        .replace("{daily_seq}-", "")
+        .replace("{daily_seq}", "")
+}
+
 pub fn danmaku_filename_template(filename_prefix: Option<&str>, name: &str) -> String {
     let template = filename_prefix
         .map(|prefix| prefix.replace("{streamer}", name))
@@ -62,7 +68,7 @@ class DanmakuRecordingPathModifierTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_nested_recordings_path_and_logical_day_are_preserved(self):
+    def test_nested_recordings_path_logical_day_and_temp_name_are_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_upstream(root)
@@ -72,7 +78,10 @@ class DanmakuRecordingPathModifierTests(unittest.TestCase):
             server = (root / "crates/biliup-cli/src/server/common/util.rs").read_text(encoding="utf-8")
             client = (root / "crates/danmaku/src/client.rs").read_text(encoding="utf-8")
 
-            self.assertIn("sanitize_recording_template(&template)", server)
+            self.assertIn(
+                "strip_daily_sequence_token(&sanitize_recording_template(&template))",
+                server,
+            )
             self.assertIn('replace("{record_date}", &record_date)', client)
             self.assertIn("chrono::Duration::hours(4)", client)
             self.assertIn("biliup_custom_danmaku_path_tests", client)
