@@ -187,12 +187,15 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             api = (root / "app/lib/api-streamer.ts").read_text(encoding="utf-8")
-            self.assertIn("filename_prefix?: string;", api)
-            self.assertIn("upload_streamers_id?: number;", api)
+            self.assertIn("filename_prefix?: string | null;", api)
+            self.assertIn("upload_streamers_id?: number | null;", api)
             self.assertNotIn("filename: string;", api)
             self.assertNotIn("upload_id?: number;", api)
             self.assertNotIn("split_time?: number;", api)
             self.assertNotIn("split_size?: number;", api)
+            self.assertIn("up_selection_reply: boolean;", api)
+            self.assertIn("up_close_reply: boolean;", api)
+            self.assertIn("up_close_danmu: boolean;", api)
 
     def test_upload_template_boolean_flags_round_trip_correctly(self):
         with tempfile.TemporaryDirectory() as tmp:
