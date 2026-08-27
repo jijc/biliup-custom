@@ -44,6 +44,22 @@ OVERRIDE_MODAL_TSX = r'''const OverrideModal = () => {
 '''
 
 
+TEMPLATE_MODAL_TSX = r'''const TemplateModal = () => {
+  const handleOk = async () => {
+    let values = await api.current?.validate()
+    values = {
+      ...values,
+      remark: values?.remark?.trim(),
+      url: values?.url?.trim(),
+      format: values?.format?.trim(),
+      time_range: JSON.stringify(values?.time_range?.map((date: Date) => date.toISOString())),
+    }
+    await onOk(values)
+  }
+}
+'''
+
+
 API_STREAMER_TS = r'''export interface LiveStreamerEntity {
   id: number;
   url: string;
@@ -144,6 +160,7 @@ def make_safety_upstream(root: Path) -> None:
     make_upstream(root)
     files = {
         "app/ui/OverrideModal.tsx": OVERRIDE_MODAL_TSX,
+        "app/ui/TemplateModal.tsx": TEMPLATE_MODAL_TSX,
         "app/lib/api-streamer.ts": API_STREAMER_TS,
         "app/(app)/upload-manager/edit/page.tsx": UPLOAD_TEMPLATE_EDIT_TSX,
         "crates/biliup-cli/src/server/common/upload.rs": UPLOAD_RS,
@@ -178,6 +195,21 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             self.assertNotIn("      'split_time',", modal)
             self.assertNotIn("      'split_size',", modal)
             self.assertIn("await onOk({ ...entity, ...cleanValues })", modal)
+
+    def test_optional_streamer_fields_can_be_explicitly_cleared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_safety_upstream(root)
+            result = self.run_script("fix_override_streamer_fields.py", root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            modal = (root / "app/ui/TemplateModal.tsx").read_text(encoding="utf-8")
+            self.assertIn("biliup-custom:clearable-streamer-fields:v1", modal)
+            self.assertIn("'filename_prefix'", modal)
+            self.assertIn("'upload_streamers_id'", modal)
+            self.assertIn("'format'", modal)
+            self.assertIn("'time_range'", modal)
+            self.assertIn("clearableValues[field] = null", modal)
 
     def test_live_streamer_types_match_backend_field_names(self):
         with tempfile.TemporaryDirectory() as tmp:
