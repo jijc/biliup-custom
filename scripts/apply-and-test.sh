@@ -26,6 +26,7 @@ run_modifier() {
 }
 
 run_modifier modify_upstream.py
+run_modifier fix_danmaku_recording_path.py
 run_modifier restore_segment_mp4.py
 run_modifier add_daily_seq_wxpusher.py
 run_modifier fix_daily_seq_temp_filename.py
@@ -48,3 +49,4 @@ cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custo
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_wxpusher_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_recordings_path_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup biliup_custom_record_date_tests -- --nocapture
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p danmaku biliup_custom_danmaku_path_tests -- --nocapture
