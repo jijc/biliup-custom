@@ -26,10 +26,10 @@ run_modifier() {
 }
 
 run_modifier modify_upstream.py
-run_modifier fix_danmaku_recording_path.py
 run_modifier restore_segment_mp4.py
 run_modifier add_daily_seq_wxpusher.py
 run_modifier fix_daily_seq_temp_filename.py
+run_modifier fix_danmaku_recording_path.py
 run_modifier fix_daily_seq_stream_gears.py
 run_modifier restore_server_log.py
 run_modifier apply_product_customizations.py
