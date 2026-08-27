@@ -7,8 +7,10 @@ from pathlib import Path
 MODAL_MARKER = "biliup-custom:preserve-streamer-fields:v1"
 SCHEMA_MARKER = "biliup-custom:live-streamer-schema:v1"
 UPLOAD_TEMPLATE_MARKER = "biliup-custom:upload-template-bool-roundtrip:v1"
+CLEARABLE_FIELDS_MARKER = "biliup-custom:clearable-streamer-fields:v1"
 NATIVE_REVIEW = 42
 OVERRIDE_MODAL_REL = Path("app/ui/OverrideModal.tsx")
+TEMPLATE_MODAL_REL = Path("app/ui/TemplateModal.tsx")
 API_STREAMER_REL = Path("app/lib/api-streamer.ts")
 UPLOAD_TEMPLATE_EDIT_REL = Path("app/(app)/upload-manager/edit/page.tsx")
 
@@ -75,6 +77,32 @@ def _modify_override_modal(text: str) -> str:
         "OverrideModal safe entity merge",
     )
     return text
+
+
+def _modify_template_modal(text: str) -> str:
+    anchor = "    await onOk(values)\n"
+    if text.count(anchor) != 1:
+        raise ModifyError(f"expected one TemplateModal onOk anchor, found {text.count(anchor)}")
+
+    replacement = f'''    // {CLEARABLE_FIELDS_MARKER}
+    // The backend uses PATCH semantics: an omitted field means "keep the old
+    // value", while explicit null means "clear it". Semi Form may omit an
+    // optional field after the user clears it, so normalize clearable scalar
+    // fields to null before sending the update.
+    const clearableValues = values as Record<string, any>
+    ;['filename_prefix', 'upload_streamers_id', 'format', 'time_range'].forEach(field => {{
+      const value = clearableValues[field]
+      if (
+        value === undefined ||
+        value === '' ||
+        (typeof value === 'string' && value.trim() === '')
+      ) {{
+        clearableValues[field] = null
+      }}
+    }})
+    await onOk(values)
+'''
+    return text.replace(anchor, replacement, 1)
 
 
 def _modify_api_schema(text: str) -> str:
@@ -145,6 +173,7 @@ def _modify_upload_template_edit(text: str) -> str:
 def modify(upstream: Path) -> None:
     paths = {
         "modal": upstream / OVERRIDE_MODAL_REL,
+        "template_modal": upstream / TEMPLATE_MODAL_REL,
         "schema": upstream / API_STREAMER_REL,
         "upload_edit": upstream / UPLOAD_TEMPLATE_EDIT_REL,
     }
@@ -153,11 +182,13 @@ def modify(upstream: Path) -> None:
             raise ModifyError(f"required upstream file missing: {path}")
 
     modal = paths["modal"].read_text(encoding="utf-8")
+    template_modal = paths["template_modal"].read_text(encoding="utf-8")
     schema = paths["schema"].read_text(encoding="utf-8")
     upload_edit = paths["upload_edit"].read_text(encoding="utf-8")
 
     marked = (
         MODAL_MARKER in modal,
+        CLEARABLE_FIELDS_MARKER in template_modal,
         SCHEMA_MARKER in schema,
         UPLOAD_TEMPLATE_MARKER in upload_edit,
     )
@@ -167,15 +198,21 @@ def modify(upstream: Path) -> None:
     if any(marked):
         raise ModifyError("partial previous frontend data-safety modification detected")
 
-    if "filename_prefix?: string | null;" in schema or "Boolean(data.up_close_danmu)" in upload_edit:
+    if (
+        "filename_prefix?: string | null;" in schema
+        or "Boolean(data.up_close_danmu)" in upload_edit
+        or CLEARABLE_FIELDS_MARKER in template_modal
+    ):
         print("native-review: upstream frontend data model changed")
         raise SystemExit(NATIVE_REVIEW)
 
     modal = _modify_override_modal(modal)
+    template_modal = _modify_template_modal(template_modal)
     schema = _modify_api_schema(schema)
     upload_edit = _modify_upload_template_edit(upload_edit)
 
     paths["modal"].write_text(modal, encoding="utf-8")
+    paths["template_modal"].write_text(template_modal, encoding="utf-8")
     paths["schema"].write_text(schema, encoding="utf-8")
     paths["upload_edit"].write_text(upload_edit, encoding="utf-8")
     print("modified")
