@@ -110,9 +110,9 @@ def make_safety_upstream(root: Path) -> None:
 
 
 class ConfigSafetyCustomizationTests(unittest.TestCase):
-    def run_modifier(self, root: Path):
+    def run_script(self, script: str, root: Path):
         return subprocess.run(
-            [sys.executable, "scripts/apply_product_customizations.py", str(root)],
+            [sys.executable, f"scripts/{script}", str(root)],
             text=True,
             capture_output=True,
         )
@@ -121,7 +121,7 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_safety_upstream(root)
-            result = self.run_modifier(root)
+            result = self.run_script("apply_product_customizations.py", root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             modal = (root / "app/ui/OverrideModal.tsx").read_text(encoding="utf-8")
@@ -135,15 +135,16 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_safety_upstream(root)
-            result = self.run_modifier(root)
+            result = self.run_script("restore_segment_mp4.py", root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             upload = (root / "crates/biliup-cli/src/server/common/upload.rs").read_text(encoding="utf-8")
             self.assertIn("biliup-custom:preserve-files-without-upload-template:v1", upload)
             self.assertIn("No upload template is bound; preserving local recording files", upload)
-            self.assertEqual(upload.count("execute_postprocessor(paths, &ctx).await"), 1)
+            self.assertEqual(upload.count("execute_postprocessor(paths, ctx).await"), 1)
             self.assertIn("Some(config) if config.is_noop_uploader()", upload)
-            self.assertIn("process_without_upload(inspect, &ctx).await", upload)
+            self.assertIn("process_without_upload(inspect, &ctx, true).await", upload)
+            self.assertIn("None => process_without_upload(inspect, &ctx, false).await,", upload)
 
 
 if __name__ == "__main__":
