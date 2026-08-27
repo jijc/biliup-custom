@@ -82,7 +82,7 @@ class SegmentMp4ModifierTests(unittest.TestCase):
             )
             self.assertIn("*video_path = converted;", upload)
 
-    def test_no_upload_template_uses_the_same_mp4_pipeline(self):
+    def test_no_upload_template_uses_the_same_mp4_pipeline_without_deleting_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_upstream(root)
@@ -94,9 +94,14 @@ class SegmentMp4ModifierTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
 
             self.assertIn(
-                "None => process_without_upload(inspect, &ctx).await,",
+                "None => process_without_upload(inspect, &ctx, false).await,",
                 upload,
             )
+            self.assertIn(
+                "process_without_upload(inspect, &ctx, true).await",
+                upload,
+            )
+            self.assertIn("biliup-custom:preserve-files-without-upload-template:v1", upload)
             self.assertNotIn(
                 "// 无上传配置时，直接执行后处理",
                 upload,
@@ -115,6 +120,7 @@ class SegmentMp4ModifierTests(unittest.TestCase):
                 root / "crates/biliup-cli/src/server/common/upload.rs"
             ).read_text(encoding="utf-8")
             self.assertEqual(upload.count("biliup-custom:auto-mp4:v1"), 1)
+            self.assertEqual(upload.count("biliup-custom:preserve-files-without-upload-template:v1"), 1)
 
 
 if __name__ == "__main__":
