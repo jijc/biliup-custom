@@ -1263,13 +1263,10 @@ tests/test_segment_mp4_modifier.py
   -> FLV→MP4、.part 排除、无投稿模板分支
 
 tests/test_daily_seq_wxpusher_modifier.py
-  -> daily_seq 时机、WxPusher 事件
-
-tests/test_daily_seq_temp_filename.py / 相关 daily_seq tests
-  -> 临时文件名不出现占位符
+  -> daily_seq 时机、临时 `{daily_seq}` 清理、WxPusher 事件
 
 tests/test_daily_seq_stream_gears_modifier.py
-  -> 默认 StreamGears 实际 filename_template 入口
+  -> 默认 StreamGears 实际 filename_template 入口与占位符清理
 
 tests/test_danmaku_recording_path_modifier.py
   -> XML 同目录、04:00 换日、初始名清理
