@@ -209,7 +209,7 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             self.assertIn("'upload_streamers_id'", modal)
             self.assertIn("'format'", modal)
             self.assertIn("'time_range'", modal)
-            self.assertIn("values[field] = null", modal)
+            self.assertIn("clearableValues[field] = null", modal)
 
     def test_live_streamer_types_match_backend_field_names(self):
         with tempfile.TemporaryDirectory() as tmp:
