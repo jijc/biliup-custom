@@ -121,7 +121,7 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_safety_upstream(root)
-            result = self.run_script("apply_product_customizations.py", root)
+            result = self.run_script("fix_override_streamer_fields.py", root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             modal = (root / "app/ui/OverrideModal.tsx").read_text(encoding="utf-8")
