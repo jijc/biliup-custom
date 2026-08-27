@@ -791,6 +791,7 @@ scripts/fix_override_streamer_fields.py
 
 ```text
 app/ui/OverrideModal.tsx
+app/ui/TemplateModal.tsx
 app/lib/api-streamer.ts
 app/(app)/upload-manager/edit/page.tsx
 ```
@@ -801,6 +802,7 @@ Markers：
 biliup-custom:preserve-streamer-fields:v1
 biliup-custom:live-streamer-schema:v1
 biliup-custom:upload-template-bool-roundtrip:v1
+biliup-custom:clearable-streamer-fields:v1
 ```
 
 ### 事故原因
@@ -1076,6 +1078,106 @@ tests/test_modifier_interactions.py
 
 ---
 
+## 4.14 可选主播字段“主动清空”语义修复
+
+**PR #17（2026-08-28）**
+
+这是 PR #16 partial update 数据安全保护的配套修复。
+
+修改器：
+
+```text
+scripts/fix_override_streamer_fields.py
+```
+
+新增修改官方文件：
+
+```text
+app/ui/TemplateModal.tsx
+```
+
+Marker：
+
+```text
+biliup-custom:clearable-streamer-fields:v1
+```
+
+### 原问题
+
+PR #16 为避免前端漏字段把数据库值误清空，把后端更新语义改为：
+
+```text
+JSON 没有这个 key -> 保留旧值
+JSON 明确传 null   -> 主动清空
+```
+
+这层保护是正确且必须保留的，但官方 `TemplateModal` 在用户把“文件名模板（可选）”等输入框清空后，Semi Form 可能把值表现为 `undefined` / 空字符串，而不是明确的 `null`。
+
+于是会出现：
+
+```text
+用户清空单主播 filename_prefix
+-> 前端没有明确表达“清空”
+-> 后端按 PATCH 安全语义保留旧值
+-> 再打开录播管理，旧模板仍然存在
+```
+
+这个问题和弹幕录制无关。
+
+### 当前修复
+
+在 `TemplateModal` 提交前，对可主动清空的主播标量字段做统一规范化：
+
+```text
+filename_prefix
+upload_streamers_id
+format
+time_range
+```
+
+当这些字段的表单值为 `undefined`、空字符串或只包含空白字符的字符串时，前端会明确发送 `null`。
+
+因此现在必须同时满足两条规则：
+
+```text
+页面没有提交/不知道的字段 -> 后端保留旧值，防止误清空
+用户在录播管理明确清空字段 -> 前端发送 null，允许真正清空
+```
+
+### 对全局文件名模板的意义
+
+推荐继续只在“空间配置”维护统一的全局 `filename_prefix`：
+
+```text
+/recordings/{streamer}/{record_date}/{daily_seq}-[%Y年%m月%d日-%H时%M分%S秒][{title}]
+```
+
+单主播 `filename_prefix = null` 时，运行时继续使用官方继承逻辑：
+
+```text
+单主播 filename_prefix.or(全局 filename_prefix)
+```
+
+因此单主播字段清空后应当只继承全局值，而不是把全局值复制进单主播数据库字段。
+
+### 测试
+
+```text
+tests/test_config_safety_customizations.py
+  -> test_optional_streamer_fields_can_be_explicitly_cleared
+```
+
+### 维护不变量
+
+以后官方如果重构表单或改为真正 PATCH DTO，仍必须保留：
+
+```text
+遗漏字段 != 清空字段
+主动清空必须有显式语义（null 或官方等价机制）
+```
+
+---
+
 # 5. `filtering_threshold`：我们明确保持官方行为
 
 **这一项当前故意不改。**
@@ -1281,7 +1383,7 @@ tests/test_recordings_browser_modifier.py
   -> /recordings 递归列表、历史播放、手动投稿、路径安全
 
 tests/test_config_safety_customizations.py
-  -> OverrideModal 字段、前端 schema、投稿模板 bool round-trip、无模板保文件
+  -> OverrideModal 字段、前端 schema、投稿模板 bool round-trip、可选主播字段显式 null 清空、无模板保文件
 
 tests/test_partial_update_safety_modifier.py
   -> 主播/空间配置/投稿模板 partial update 语义
@@ -1446,6 +1548,7 @@ filtering_threshold 继续按用户设置过滤
 配置覆写不能清 filename_prefix
 配置覆写不能清 upload_streamers_id
 漏传 JSON 字段必须保留原值
+UI 主动清空可选主播字段必须显式发送 null
 显式 null 才允许清空
 ```
 
@@ -1511,6 +1614,7 @@ PR #12 2026-08-25  StreamGears 实际入口补 daily_seq 清理
 PR #14 2026-08-26  /recordings 递归浏览 + 投稿选择 + 历史播放 + 路径安全
 PR #15 2026-08-27  弹幕 XML 同目录 + 04:00 逻辑日期
 PR #16 2026-08-27  投稿/文件名模板丢失修复 + partial update + 无模板保文件
+PR #17 2026-08-28  可选主播字段主动清空发送 null，恢复单主播继承全局配置
 ```
 
 已知主线关键 merge commit（可用于事故追踪，不能代替本文档）：
@@ -1569,6 +1673,6 @@ docker compose up -d
 
 ---
 
-最后更新：2026-08-27
+最后更新：2026-08-28
 
-当前文档对应自定义分支：`fix/preserve-upload-template-and-local-files`（PR #16，合并后以 `main` 为准）。
+当前文档对应自定义分支：`fix/clear-optional-streamer-fields`（PR #17，合并后以 `main` 为准）。
