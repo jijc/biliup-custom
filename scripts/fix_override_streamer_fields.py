@@ -64,10 +64,10 @@ def _modify_override_modal(text: str) -> str:
     block = block.replace(anchor, f"    // {MODAL_MARKER}\n" + anchor, 1)
     text = text[:start] + block + text[end:]
 
-    # This is the fail-safe against future backend fields being added without
-    # the override dialog knowing about them. OverrideModal only edits override
-    # settings, so every untouched top-level streamer field must come from the
-    # original entity rather than from the form's registered field subset.
+    # Fail-safe against future top-level fields being added by the backend.
+    # The override dialog edits only a subset, so untouched fields must be
+    # carried forward from the original API entity instead of disappearing from
+    # the full-row PUT payload.
     text = _replace_once(
         text,
         "      await onOk(cleanValues)",
@@ -85,7 +85,6 @@ def _modify_api_schema(text: str) -> str:
         "\tupload_id?: number;"
     )
     if legacy_streamer_fields not in text:
-        # Some upstream snapshots use spaces instead of tabs.
         legacy_streamer_fields = (
             "  filename: string;\n"
             "  split_time?: number;\n"
@@ -103,13 +102,17 @@ def _modify_api_schema(text: str) -> str:
     )
     text = text.replace(legacy_streamer_fields, replacement, 1)
 
+    # The GET model serializes these flags as booleans, while the current create
+    # and update payloads still send 0/1 for the InsertUploadStreamer API. Keep
+    # the shared UI type compatible with both shapes and normalize reads in the
+    # edit page below.
     for field in ("up_selection_reply", "up_close_reply", "up_close_danmu"):
         old_tab = f"\t{field}: number;"
         old_spaces = f"  {field}: number;"
         if old_tab in text:
-            text = text.replace(old_tab, f"\t{field}: boolean;", 1)
+            text = text.replace(old_tab, f"\t{field}: boolean | number;", 1)
         elif old_spaces in text:
-            text = text.replace(old_spaces, f"  {field}: boolean;", 1)
+            text = text.replace(old_spaces, f"  {field}: boolean | number;", 1)
         else:
             raise ModifyError(f"StudioEntity field type changed: {field}")
     return text
@@ -164,8 +167,6 @@ def modify(upstream: Path) -> None:
     if any(marked):
         raise ModifyError("partial previous frontend data-safety modification detected")
 
-    # If upstream fixes these areas natively, stop instead of stacking a stale
-    # patch on top. CI will require a human review of the new official shape.
     if "filename_prefix?: string | null;" in schema or "Boolean(data.up_close_danmu)" in upload_edit:
         print("native-review: upstream frontend data model changed")
         raise SystemExit(NATIVE_REVIEW)
