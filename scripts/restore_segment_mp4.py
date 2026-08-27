@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 MARKER = "// biliup-custom:auto-mp4:v1"
+PRESERVE_FILES_MARKER = "// biliup-custom:preserve-files-without-upload-template:v1"
 NATIVE_REVIEW = 42
 UPLOAD_REL = Path("crates/biliup-cli/src/server/common/upload.rs")
 
@@ -227,6 +228,7 @@ mod biliup_custom_auto_mp4_tests {
 PROCESS_WITHOUT_UPLOAD = r'''async fn process_without_upload<F>(
     rx: Inspect<Receiver<SegmentInfo>, F>,
     ctx: &Context,
+    run_postprocessor: bool,
 ) -> AppResult<()>
 where
     F: FnMut(&SegmentInfo),
@@ -253,7 +255,24 @@ where
         }
         paths.extend(event_paths);
     }
-    execute_postprocessor(paths, ctx).await
+
+    if run_postprocessor {
+        return execute_postprocessor(paths, ctx).await;
+    }
+
+    // biliup-custom:preserve-files-without-upload-template:v1
+    // A missing upload template can be accidental (for example a UI update
+    // dropping upload_streamers_id). Keep the converted local recordings and
+    // skip destructive postprocessors such as rm. An explicit Noop template
+    // still passes run_postprocessor=true and preserves the intentional flow.
+    if !paths.is_empty() {
+        tracing::warn!(
+            count = paths.len(),
+            url = %ctx.live_streamer().url,
+            "No upload template is bound; preserving local recording files and skipping postprocessor"
+        );
+    }
+    Ok(())
 }
 '''
 
@@ -278,6 +297,8 @@ def modify(upstream: Path) -> None:
 
     upload = upload_path.read_text(encoding="utf-8")
     if MARKER in upload:
+        if PRESERVE_FILES_MARKER not in upload:
+            raise ModifyError("auto-mp4 modification exists without missing-template safety")
         print("already-modified")
         return
 
@@ -292,15 +313,29 @@ def modify(upstream: Path) -> None:
     upload = upload[:start] + UPLOAD_HELPERS + "\n\n" + upload[start:]
     upload = _replace_function(upload, signature, PROCESS_WITHOUT_UPLOAD)
 
+    # Explicit Noop means the user intentionally selected a no-upload template;
+    # keep its normal postprocessor behavior. This must be exactly one call.
+    noop_call = "process_without_upload(inspect, &ctx).await"
+    noop_count = upload.count(noop_call)
+    if noop_count != 1:
+        raise ModifyError(f"expected one explicit Noop process_without_upload call, found {noop_count}")
+    upload = upload.replace(
+        noop_call,
+        "process_without_upload(inspect, &ctx, true).await",
+        1,
+    )
+
     # When no upload template is selected, upstream duplicates the no-upload
-    # loop inline instead of calling process_without_upload(). Match that one
-    # exact structural block (whitespace-independent) and route it through the
-    # shared function. Any semantic upstream change still fails the build.
+    # loop inline. Route that branch through the same MP4 conversion pipeline,
+    # but explicitly disable postprocessing so an accidental missing template
+    # can never delete the local recording.
     matches = list(NO_UPLOAD_INLINE_RE.finditer(upload))
     if len(matches) != 1:
         raise ModifyError(f"expected one no-upload inline branch, found {len(matches)}")
     match = matches[0]
-    replacement = f"{match.group('indent')}None => process_without_upload(inspect, &ctx).await,"
+    replacement = (
+        f"{match.group('indent')}None => process_without_upload(inspect, &ctx, false).await,"
+    )
     upload = upload[: match.start()] + replacement + upload[match.end() :]
 
     upload_path.write_text(upload, encoding="utf-8")
