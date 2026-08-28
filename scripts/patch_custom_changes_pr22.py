@@ -128,7 +128,7 @@ B站稿件信息构建完成
 继续无自定义封面投稿
 ```
 
-日志分别会明确显示失败或超时。这里选择“无封面继续投稿”，是因为媒体内容本身已经上传完成，不能因为一个可降级的封面请求让整份稿件永远卡死。
+这里选择“无封面继续投稿”，是因为媒体内容本身已经上传完成，不能因为一个可降级的封面请求让整份稿件永远卡死。
 
 ### 最终 submit 超时后的安全恢复
 
@@ -166,9 +166,7 @@ status = is_pubing,pubed,not_pubed
 Submit successful
 ```
 
-此时不再重复 submit，避免产生重复稿件。
-
-因为已经由 B站稿件列表确认真实稿件存在，自动录制链路可继续按“成功”处理，随后才允许执行既有成功 postprocessor（包括用户明确配置的 `rm`）。
+此时不再重复 submit，避免产生重复稿件。因为已经由 B站稿件列表确认真实稿件存在，自动录制链路可继续按成功处理，随后才允许执行既有成功 postprocessor（包括用户明确配置的 `rm`）。
 
 #### B. 至少两次远端查询成功，并且都没有对应稿件
 
@@ -260,14 +258,7 @@ tests/test_submit_pipeline_recovery_modifier.py
 
 ### 同步官方时重点检查
 
-如果官方以后原生提供：
-
-- cover upload 完整 timeout/降级；
-- 最终 submit 的幂等机制；
-- 上传完成后的稿件状态确认；
-- 或持久化的“只重试 submit、不重传媒体”能力；
-
-应先人工比较语义，再决定删除/缩减本 modifier，不能叠加两套重试机制。
+如果官方以后原生提供 cover upload 完整 timeout/降级、最终 submit 的幂等机制、上传完成后的稿件状态确认，或持久化的“只重试 submit、不重传媒体”能力，应先人工比较语义，再决定删除/缩减本 modifier，不能叠加两套重试机制。
 
 ---
 
@@ -307,12 +298,18 @@ tests/test_submit_pipeline_recovery_modifier.py
         "submission safety section",
     )
 
-    text = replace_once(
-        text,
-        "biliup-custom:submit-timeout:v1\n```",
-        "biliup-custom:submit-timeout:v1\nbiliup-custom:submit-pipeline-recovery:v1\n```",
-        "marker list",
+    marker_anchor = (
+        "biliup-custom:manual-upload-feedback:v1\n"
+        "biliup-custom:log-websocket-resilience:v1\n"
+        "biliup-custom:submit-timeout:v1\n```"
     )
+    marker_replacement = (
+        "biliup-custom:manual-upload-feedback:v1\n"
+        "biliup-custom:log-websocket-resilience:v1\n"
+        "biliup-custom:submit-timeout:v1\n"
+        "biliup-custom:submit-pipeline-recovery:v1\n```"
+    )
+    text = replace_once(text, marker_anchor, marker_replacement, "marker list")
 
     text = replace_once(
         text,
