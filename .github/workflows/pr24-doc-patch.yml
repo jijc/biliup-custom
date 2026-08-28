@@ -1,0 +1,340 @@
+name: Apply PR24 maintenance doc patch
+
+on:
+  push:
+    branches:
+      - fix/restore-auto-upload-manual-submit-guard
+
+permissions:
+  contents: write
+
+jobs:
+  patch-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/restore-auto-upload-manual-submit-guard
+          fetch-depth: 0
+
+      - name: Patch CUSTOM_CHANGES.md
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('CUSTOM_CHANGES.md')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '''13. fix_manual_upload_feedback.py
+14. fix_log_websocket_resilience.py
+15. fix_submit_timeout.py
+16. fix_submit_pipeline_recovery.py''',
+              '''13. fix_manual_upload_feedback.py
+14. fix_manual_submit_guard.py
+15. fix_log_websocket_resilience.py''',
+              'modifier order',
+          )
+
+          replace_once(
+              '## 4.18 B站最终投稿 90 秒超时与阶段日志',
+              '## 4.18 [历史 / PR #24 已停用] B站最终投稿 90 秒超时与阶段日志',
+              'PR21 heading',
+          )
+          replace_once(
+              '**PR #21（2026-08-28）**\n\n修改器：',
+              '**PR #21（2026-08-28）**\n\n> **PR #24 修正：本节保留用于事故追踪；`fix_submit_timeout.py` 已从运行时构建链移除，不再修改自动上传。**\n\n修改器：',
+              'PR21 superseded note',
+          )
+          replace_once(
+              '## 4.19 上传完成但稿件未创建：封面阶段保护 + 最终投稿安全恢复',
+              '## 4.19 [历史 / PR #24 已停用] 上传完成但稿件未创建：封面阶段保护 + 最终投稿安全恢复',
+              'PR22 heading',
+          )
+          replace_once(
+              '**PR #22（2026-08-28）**\n\n修改器：',
+              '**PR #22（2026-08-28）**\n\n> **PR #24 修正：本节保留用于事故追踪；`fix_submit_pipeline_recovery.py` 已从运行时构建链移除。自动上传恢复官方 biliup 原始投稿语义。**\n\n修改器：',
+              'PR22 superseded note',
+          )
+
+          section = '''## 4.20 自动上传回归修复：自动投稿恢复官方，防卡死仅作用于手动上传
+
+**PR #24（2026-08-28）**
+
+修改器：
+
+```text
+scripts/fix_manual_submit_guard.py
+```
+
+Marker：
+
+```text
+biliup-custom:manual-submit-guard:v1
+```
+
+### 生产回归
+
+PR #21 / #22 原本是为“网页手动投稿上传完分P后长期没有最终结论”增加 timeout、封面阶段保护和远端恢复，但实现位置放在公共：
+
+```text
+crates/biliup-cli/src/server/common/upload.rs
+build_studio()
+submit_to_bilibili()
+```
+
+自动直播结束后的投稿也调用这两个公共函数，因此原本只想保护手动上传，实际上改变了此前稳定工作的自动上传链路。生产现象是：更新这两版后，新的自动投稿无法在 B站稿件管理中形成稿件。
+
+### PR #24 的原则
+
+```text
+自动上传：恢复当前官方 biliup 的 build_studio + submit_to_bilibili 原始语义
+手动上传：只在 /v1/uploads 后台任务外围增加防卡死 timeout
+```
+
+因此四条运行时构建链都**不再执行**：
+
+```text
+fix_submit_timeout.py
+fix_submit_pipeline_recovery.py
+```
+
+这两个脚本保留在仓库中仅作为历史事故实现/对照，不是当前运行版本的一部分。
+
+### 自动上传当前行为
+
+自动上传重新回到官方顺序：
+
+```text
+上传各媒体 P
+-> 官方 build_studio()
+-> 官方自定义封面处理
+-> 官方 submit_to_bilibili()
+-> 只有 submit 成功才进入 postprocessor
+```
+
+不再额外增加：
+
+```text
+自定义 90 秒 submit timeout
+自定义 30 秒 cover timeout
+远端稿件确认
+最终 submit 自动重试
+```
+
+也仍然没有 App -> Web 自动 fallback。
+
+### 手动上传当前行为
+
+网页手动上传仍然需要防止后台任务无限挂住，但保护只包裹 `post_uploads()` 中的手动任务：
+
+```text
+媒体分P上传完成
+-> build_studio 最多等待 60 秒
+-> 最终 submit 最多等待 120 秒
+```
+
+超时会记录明确阶段日志并让本次手动任务结束；不会自动重试最终 submit，也不会重传媒体。因为手动上传本身不执行自动 `rm` postprocessor，本地文件继续保留。
+
+### 为什么 B站后台看不到稿件不等于分P从未上传
+
+B站的媒体上传和最终 create/submit 是两个阶段。只有最后 create/submit 成功才会形成可在稿件管理看到的稿件。因此日志出现 `Upload completed` 但后台没有稿件时，只能确认“稿件没有创建成功”，不能反推前面的 Upos 媒体字节完全没有上传。
+
+### 回归测试
+
+```text
+tests/test_manual_submit_guard_scope.py
+```
+
+覆盖：
+
+- 新 guard 只修改 `endpoints.rs` 的网页手动投稿；
+- 不修改公共 `common/upload.rs`；
+- 四条运行时构建链不得再执行 PR #21/#22 的全局 submit modifiers；
+- 手动 build/submit timeout；
+- modifier 幂等。
+
+### 同步官方时重点检查
+
+自动投稿属于核心稳定链路。以后任何“手动上传防卡死”修复，除非有单独生产证据证明自动链路也需要同样变化，否则**禁止再次通过修改共享 `build_studio()` / `submit_to_bilibili()` 把实验性恢复策略扩散到自动上传**。
+
+---
+
+'''
+          replace_once(
+              '# 5. `filtering_threshold`：我们明确保持官方行为',
+              section + '# 5. `filtering_threshold`：我们明确保持官方行为',
+              'PR24 section insertion',
+          )
+
+          old_65_66 = '''## 6.5 最终投稿 90 秒超时
+
+文件分片全部上传完成后，最终 create/submit 最多等待 90 秒。
+
+如果超时：
+
+```text
+本地任务返回错误
+不执行成功 postprocessor
+本地录像保留
+稿件状态 = 未确认
+```
+
+因为 timeout 不能证明远端一定没有处理请求，PR #22 会先自动检查 B站远端稿件状态，再决定是否允许只重试最终 submit。
+
+## 6.6 上传完成后的稿件恢复边界
+
+`Upload completed` 只证明媒体 P 上传完成，不代表稿件 create-submit 已成功。
+
+当前安全顺序：
+
+```text
+所有媒体 P Upload completed
+-> build_studio
+-> 自定义封面最多 30 秒，失败则无封面继续
+-> 最终 submit 最多 90 秒
+-> timeout 才查询远端稿件列表
+-> 查到 aid/bvid：视为真实成功，不重复提交
+-> 至少两次成功查询均未找到：只重试最终 submit 一次，不重传媒体
+-> 查询状态不可靠：不自动重试
+-> B站明确错误（含 21566）：不自动重试
+```
+
+如果最终返回错误，自动链路不得执行成功 postprocessor，因此本地录像继续保留。'''
+          new_65_66 = '''## 6.5 自动投稿保持官方 submit 语义
+
+PR #24 起，自动上传不再使用自定义的 90 秒最终 submit timeout，也不再做远端稿件确认/自动重试。
+
+当前自动上传安全边界：
+
+```text
+所有媒体 P Upload completed
+-> 官方 build_studio
+-> 官方 submit_to_bilibili
+-> submit 成功：才允许成功 postprocessor
+-> submit 返回错误：不执行成功 postprocessor，本地录像保留
+```
+
+## 6.6 手动投稿防卡死边界
+
+`Upload completed` 只证明媒体 P 上传完成，不代表稿件 create-submit 已成功。
+
+网页手动上传当前顺序：
+
+```text
+所有媒体 P Upload completed
+-> build_studio 最多 60 秒
+-> 最终 submit 最多 120 秒
+-> 成功：记录“通过页面上传成功”
+-> 超时/错误：结束手动任务并记录阶段日志
+```
+
+手动链路没有自动 submit 重试、没有远端稿件确认、没有 App -> Web fallback。自动链路则完全不套用这些手动 timeout。'''
+          replace_once(old_65_66, new_65_66, 'section 6.5/6.6')
+
+          replace_once(
+              '''biliup-custom:manual-upload-feedback:v1
+biliup-custom:log-websocket-resilience:v1
+biliup-custom:submit-timeout:v1
+biliup-custom:submit-pipeline-recovery:v1''',
+              '''biliup-custom:manual-upload-feedback:v1
+biliup-custom:manual-submit-guard:v1
+biliup-custom:log-websocket-resilience:v1''',
+              'active marker list',
+          )
+          replace_once(
+              '缺任意一个都要确认：',
+              '''历史停用、不应出现在当前修改后 upstream 中的 marker：
+
+```text
+biliup-custom:submit-timeout:v1
+biliup-custom:submit-pipeline-recovery:v1
+```
+
+如果这两个历史 marker 再次出现在发布构建中，应视为自动上传回归风险并阻止发布。
+
+缺任意一个当前 marker 都要确认：''',
+              'historical marker note',
+          )
+
+          replace_once(
+              '''tests/test_submit_timeout_modifier.py
+  -> B站最终投稿 90 秒超时、阶段日志、三种提交分支保持、无自动 fallback、幂等
+
+tests/test_submit_pipeline_recovery_modifier.py
+  -> 封面 timeout/降级、远端稿件确认、只重试最终 submit、四条构建链路接入、幂等''',
+              '''tests/test_submit_timeout_modifier.py
+  -> PR #21 历史 modifier 的独立单测；当前运行时构建链不再执行
+
+tests/test_manual_submit_guard_scope.py
+  -> 自动上传保持官方公共 submit/build；手动上传 60/120 秒 guard；四条链路作用域；幂等''',
+              'test responsibility list',
+          )
+
+          replace_once(
+              '''- B站最终 create/submit 的完整超时与阶段日志；
+- 封面上传 timeout/降级与最终 submit 超时后的远端确认/单次恢复。''',
+              '''- 网页手动投稿是否已原生提供可观测的 build/submit timeout；
+- 自动上传公共 build/submit 是否仍保持官方稳定语义。''',
+              'upstream review bullets',
+          )
+
+          old_final = '''所有 P 的 Upload completed != 稿件提交成功
+build_studio 的自定义封面上传最多等待 30 秒，失败/超时清空 cover 后继续
+最终 create/submit 每次最多等待 90 秒
+只有 timeout 这种“结果未知”允许进入远端确认
+远端确认覆盖 is_pubing,pubed,not_pubed
+查到本次对应 aid/bvid 后不得重复 submit
+至少两次成功查询都未找到，才允许复用已上传 Video 信息重试最终 submit 一次
+远端状态查不清则不自动重试
+B站明确错误（包括 21566）不得自动重试
+最终失败必须阻断成功 postprocessor/rm
+不得因此引入 21566 App -> Web 自动 fallback'''
+          new_final = '''所有 P 的 Upload completed != 稿件提交成功
+自动上传不得套用自定义 submit timeout / 远端确认 / 自动重试
+自动上传 build_studio 与 submit_to_bilibili 必须保持当前官方语义
+自动 submit 返回错误必须阻断成功 postprocessor/rm
+网页手动上传 build_studio 最多等待 60 秒
+网页手动上传最终 submit 最多等待 120 秒
+手动 timeout 后不得自动重复 submit 或重传媒体
+B站明确错误（包括 21566）不得自动重试
+不得因此引入 21566 App -> Web 自动 fallback'''
+          replace_once(old_final, new_final, 'final submission invariants')
+
+          replace_once(
+              '''PR #21 2026-08-28  实时日志 WebSocket 心跳/重连 + 最终投稿 90 秒超时与阶段日志
+PR #22 2026-08-28  上传完成无稿件恢复：封面 timeout/降级 + 远端确认 + 最终 submit 单次重试''',
+              '''PR #21 2026-08-28  实时日志 WebSocket 心跳/重连 + 最终投稿 90 秒超时与阶段日志（全局 submit 部分后被 #24 停用）
+PR #22 2026-08-28  上传完成无稿件恢复：封面 timeout/降级 + 远端确认 + 最终 submit 单次重试（后被 #24 停用）
+PR #24 2026-08-28  修复自动上传回归：自动投稿恢复官方语义，timeout 仅保留在网页手动上传''',
+              'timeline',
+          )
+
+          replace_once(
+              '当前文档对应发布候选：PR #22 `fix/submit-pipeline-recovery`（合并后以 `main` 为准）。',
+              '当前文档对应发布候选：PR #24 `fix/restore-auto-upload-manual-submit-guard`（合并后以 `main` 为准）。',
+              'release candidate',
+          )
+
+          path.write_text(text, encoding='utf-8')
+          print('CUSTOM_CHANGES.md patched for PR24')
+          PY
+
+      - name: Commit doc and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name "Ji JinChi"
+          git config user.email "3109952@qq.com"
+          git rm .github/workflows/pr24-doc-patch.yml
+          git add CUSTOM_CHANGES.md
+          git commit -m "docs: document automatic upload rollback scope"
+          git push origin HEAD:fix/restore-auto-upload-manual-submit-guard
