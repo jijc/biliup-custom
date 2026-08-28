@@ -13,6 +13,13 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def main() -> None:
     text = PATH.read_text(encoding="utf-8")
+    if (
+        "15. fix_submit_timeout.py" in text
+        and "## 4.18 B站最终投稿 90 秒超时与阶段日志" in text
+        and "biliup-custom:submit-timeout:v1" in text
+    ):
+        print("CUSTOM_CHANGES.md already patched for PR #21")
+        return
 
     text = replace_once(
         text,
