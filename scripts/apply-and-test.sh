@@ -41,6 +41,9 @@ run_modifier fix_manual_upload_feedback.py
 run_modifier fix_log_websocket_resilience.py
 run_modifier fix_submit_timeout.py
 
+# biliup-cli embeds the already-built WebUI at compile time. The official
+# Dockerfile builds it first; focused Rust tests only need the directory to
+# exist so that unrelated WebUI compilation does not mask Rust test results.
 mkdir -p "$UPSTREAM_DIR/out"
 printf '<!doctype html><title>biliup-custom test fixture</title>\n' > "$UPSTREAM_DIR/out/index.html"
 
