@@ -8,22 +8,29 @@ from test_submit_pipeline_recovery_modifier import make_upstream
 
 
 class CoverFailureBlocksSubmitTests(unittest.TestCase):
+    def run_modifier(self, script: str, root: Path):
+        return subprocess.run(
+            [sys.executable, script, str(root)],
+            text=True,
+            capture_output=True,
+        )
+
+    def prepare_recovery_upstream(self, root: Path):
+        make_upstream(root)
+        for script in (
+            "scripts/fix_submit_timeout.py",
+            "scripts/fix_submit_pipeline_recovery.py",
+        ):
+            result = self.run_modifier(script, root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_cover_failure_never_clears_cover_and_continues_submit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            make_upstream(root)
+            self.prepare_recovery_upstream(root)
 
-            for script in (
-                "scripts/fix_submit_timeout.py",
-                "scripts/fix_submit_pipeline_recovery.py",
-                "scripts/fix_cover_failure_safety.py",
-            ):
-                result = subprocess.run(
-                    [sys.executable, script, str(root)],
-                    text=True,
-                    capture_output=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = self.run_modifier("scripts/fix_cover_failure_safety.py", root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             upload = (root / "crates/biliup-cli/src/server/common/upload.rs").read_text(
                 encoding="utf-8"
@@ -53,6 +60,21 @@ class CoverFailureBlocksSubmitTests(unittest.TestCase):
                     text.index("fix_submit_pipeline_recovery.py"),
                     text.index("fix_cover_failure_safety.py"),
                 )
+
+    def test_modifier_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.prepare_recovery_upstream(root)
+
+            first = self.run_modifier("scripts/fix_cover_failure_safety.py", root)
+            second = self.run_modifier("scripts/fix_cover_failure_safety.py", root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+
+            upload = (root / "crates/biliup-cli/src/server/common/upload.rs").read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(upload.count("biliup-custom:cover-failure-safety:v1"), 1)
 
 
 if __name__ == "__main__":
