@@ -19,7 +19,27 @@ jobs:
           fetch-depth: 0
 
       - name: Patch maintenance doc
-        run: python scripts/patch_custom_changes_pr25.py
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('CUSTOM_CHANGES.md')
+          s = p.read_text(encoding='utf-8')
+          anchor = '## 4.17 实时日志 WebSocket 心跳、降噪与自动重连\n\n**PR #21（2026-08-28）**\n\n修改器：'
+          masked = '## 4.17 实时日志 WebSocket 心跳、降噪与自动重连\n\n**PR #21（2026-08-28）**\n\n修改器： '
+          if anchor not in s:
+              raise SystemExit('PR21 websocket section anchor not found')
+          p.write_text(s.replace(anchor, masked, 1), encoding='utf-8')
+          PY
+          python scripts/patch_custom_changes_pr25.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('CUSTOM_CHANGES.md')
+          s = p.read_text(encoding='utf-8')
+          masked = '## 4.17 实时日志 WebSocket 心跳、降噪与自动重连\n\n**PR #21（2026-08-28）**\n\n修改器： '
+          restored = '## 4.17 实时日志 WebSocket 心跳、降噪与自动重连\n\n**PR #21（2026-08-28）**\n\n修改器：'
+          p.write_text(s.replace(masked, restored, 1), encoding='utf-8')
+          PY
 
       - name: Commit maintenance doc
         shell: bash
