@@ -100,6 +100,7 @@ jobs:
           python scripts/fix_log_websocket_resilience.py "$UPSTREAM_DIR"
           python scripts/fix_submit_timeout.py "$UPSTREAM_DIR"
           python scripts/fix_submit_pipeline_recovery.py "$UPSTREAM_DIR"
+          python scripts/fix_cover_failure_safety.py "$UPSTREAM_DIR"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
