@@ -38,6 +38,7 @@ run_modifier fix_partial_update_safety.py
 run_modifier fix_missing_upload_template_safety.py
 run_modifier fix_recordings_browser.py
 run_modifier fix_manual_upload_feedback.py
+run_modifier fix_safe_strftime_templates.py
 run_modifier fix_manual_submit_guard.py
 run_modifier fix_log_websocket_resilience.py
 
@@ -47,6 +48,7 @@ run_modifier fix_log_websocket_resilience.py
 mkdir -p "$UPSTREAM_DIR/out"
 printf '<!doctype html><title>biliup-custom test fixture</title>\n' > "$UPSTREAM_DIR/out/index.html"
 
+cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_safe_strftime_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_recording_path_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_auto_mp4_tests -- --nocapture
 cargo test --manifest-path "$UPSTREAM_DIR/Cargo.toml" -p biliup-cli biliup_custom_daily_sequence_tests -- --nocapture
