@@ -165,8 +165,8 @@ tests/test_submit_timeout_modifier.py
 
     text = replace_once(
         text,
-        "biliup-custom:log-websocket-resilience:v1\n```",
-        "biliup-custom:log-websocket-resilience:v1\nbiliup-custom:submit-timeout:v1\n```",
+        "biliup-custom:manual-upload-feedback:v1\nbiliup-custom:log-websocket-resilience:v1\n```",
+        "biliup-custom:manual-upload-feedback:v1\nbiliup-custom:log-websocket-resilience:v1\nbiliup-custom:submit-timeout:v1\n```",
         "marker list",
     )
 
