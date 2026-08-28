@@ -47,6 +47,7 @@ jobs:
           python scripts/fix_log_websocket_resilience.py "$UPSTREAM_DIR"
           python scripts/fix_submit_timeout.py "$UPSTREAM_DIR"
           python scripts/fix_submit_pipeline_recovery.py "$UPSTREAM_DIR"
+          python scripts/fix_cover_failure_safety.py "$UPSTREAM_DIR"
           echo "UPSTREAM_DIR=$UPSTREAM_DIR" >> "$GITHUB_ENV"
 
       - name: Build image with official Dockerfile
