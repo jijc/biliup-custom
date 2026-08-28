@@ -18,6 +18,20 @@ jobs:
         with:
           ref: release/final-20260828
 
+      - name: Disambiguate duplicate marker occurrence
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('CUSTOM_CHANGES.md')
+          text = path.read_text(encoding='utf-8')
+          old = 'biliup-custom:recordings-upload-picker:v1\n```'
+          new = 'biliup-custom:recordings-upload-picker:v1\nbiliup-custom:manual-upload-feedback:v1\n```'
+          if text.count(old) != 2:
+              raise SystemExit(f'expected 2 marker occurrences, got {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Update maintenance document
         run: python scripts/update_custom_changes_release.py
 
