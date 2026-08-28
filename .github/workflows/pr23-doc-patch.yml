@@ -1,0 +1,105 @@
+name: Apply PR23 documentation patch
+
+on:
+  push:
+    branches:
+      - fix/cover-failure-blocks-submit
+
+permissions:
+  contents: write
+
+jobs:
+  patch-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/cover-failure-blocks-submit
+          fetch-depth: 0
+
+      - name: Patch CUSTOM_CHANGES.md
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('CUSTOM_CHANGES.md')
+          text = path.read_text(encoding='utf-8')
+          marker = 'biliup-custom:cover-failure-safety:v1'
+          if marker in text:
+              print('PR23 documentation already applied')
+              raise SystemExit(0)
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one anchor, got {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '16. fix_submit_pipeline_recovery.py\n```',
+              '16. fix_submit_pipeline_recovery.py\n17. fix_cover_failure_safety.py\n```',
+              'modifier order',
+          )
+
+          replace_once(
+              '''如果封面文件读取失败、B站封面上传明确失败，或者 30 秒仍没有返回：\n\n```text\n清空 studio.cover\n继续无自定义封面投稿\n```\n\n这里选择“无封面继续投稿”，是因为媒体内容本身已经上传完成，不能因为一个可降级的封面请求让整份稿件永远卡死。''',
+              '''如果封面文件读取失败、B站封面上传明确失败，或者 30 秒仍没有返回：\n\n```text\n停止本次投稿\n不进入最终 submit\n不执行成功 postprocessor/rm\n本地录像保留\n```\n\n**PR #23 修正：**不能把已配置的自定义封面失败简单等价为“未配置封面”。当前 biliup 的 `Studio.cover` 是普通 `String`；清空后会形成空字符串值，而不是可靠地省略 `cover` 字段。为避免拿 `cover: ""` 继续试探 B站投稿接口，配置了自定义封面时必须先成功取得 B站封面 URL，失败或超时就终止本次投稿。''',
+              'PR22 cover behavior correction',
+          )
+
+          section = '''## 4.20 自定义封面失败必须阻断最终投稿\n\n**PR #23（2026-08-28）**\n\n修改器：\n\n```text\nscripts/fix_cover_failure_safety.py\n```\n\n依赖顺序：\n\n```text\nfix_submit_timeout.py\n-> fix_submit_pipeline_recovery.py\n-> fix_cover_failure_safety.py\n```\n\n修改官方文件：\n\n```text\ncrates/biliup-cli/src/server/common/upload.rs\n```\n\nMarker：\n\n```text\nbiliup-custom:cover-failure-safety:v1\n```\n\n### 为什么需要这一层\n\nPR #22 为封面上传增加了 30 秒 timeout，但最初在封面失败/超时时会 `studio.cover.clear()` 后继续投稿。复核当前 biliup 结构后发现，`Studio.cover` 是普通可序列化 `String`，空字符串与“完全不发送 cover 字段”不是同一个语义。\n\n因此 PR #23 改为 fail-closed：\n\n```text\n投稿模板没有自定义封面\n-> 保持官方原有行为，不额外强制封面\n\n投稿模板配置了自定义封面\n-> 必须读取本地封面成功\n-> 必须在 30 秒内上传到 B站并取得远端 URL\n-> 才允许进入最终 create/submit\n```\n\n如果封面读取失败、上传明确失败或 30 秒超时：\n\n```text\nERROR 明确记录封面阶段失败\n-> build_studio 返回 Err\n-> 不进入最终 submit\n-> 不进入成功 postprocessor\n-> postprocessor=rm 不执行\n-> 本地录像保留\n```\n\n### 非目标\n\n这不是“强制所有投稿都必须手工配置封面”。如果模板从一开始就没有配置自定义 `cover_path`，继续保持 biliup 官方行为。本修复只禁止：**明明配置了自定义封面，但封面处理失败后把 cover 清空继续提交。**\n\n### 回归测试\n\n```text\ntests/test_cover_failure_blocks_submit.py\n```\n\n覆盖：\n\n- recovery modifier 后再执行 cover safety modifier；\n- 禁止残留 `studio.cover.clear()`；\n- 读取失败/上传失败/timeout 三种情况全部停止投稿；\n- modifier 幂等；\n- 四条 build/validate/publish 链路必须在 recovery 后执行本 modifier。\n\n### 同步官方时重点检查\n\n如果官方以后把 `cover` 改成真正可省略字段、提供明确的自动取帧封面语义，或把封面上传移到媒体上传之前，应重新评估这一 fail-closed 策略，而不是机械保留。\n\n---\n\n'''
+          replace_once(
+              '# 5. `filtering_threshold`：我们明确保持官方行为',
+              section + '# 5. `filtering_threshold`：我们明确保持官方行为',
+              'PR23 section insertion',
+          )
+
+          replace_once(
+              'biliup-custom:submit-pipeline-recovery:v1\n```',
+              'biliup-custom:submit-pipeline-recovery:v1\nbiliup-custom:cover-failure-safety:v1\n```',
+              'marker list',
+          )
+
+          replace_once(
+              'tests/test_submit_pipeline_recovery_modifier.py\n  -> 封面 timeout/降级、远端稿件确认、只重试最终 submit、四条构建链路接入、幂等\n',
+              'tests/test_submit_pipeline_recovery_modifier.py\n  -> 封面 timeout、远端稿件确认、只重试最终 submit、四条构建链路接入、幂等\n\ntests/test_cover_failure_blocks_submit.py\n  -> 自定义封面失败/超时阻断最终投稿、禁止空 cover 继续、四条链路顺序、幂等\n',
+              'test list',
+          )
+
+          replace_once(
+              'build_studio 的自定义封面上传最多等待 30 秒，失败/超时清空 cover 后继续',
+              'build_studio 的自定义封面上传最多等待 30 秒；若已配置自定义封面，读取/上传失败或超时必须阻断最终 submit',
+              'final submit invariant',
+          )
+
+          replace_once(
+              'PR #22 2026-08-28  上传完成无稿件恢复：封面 timeout/降级 + 远端确认 + 最终 submit 单次重试\n```',
+              'PR #22 2026-08-28  上传完成无稿件恢复：封面 timeout + 远端确认 + 最终 submit 单次重试\nPR #23 2026-08-28  自定义封面失败 fail-closed：禁止空 cover 继续最终投稿\n```',
+              'timeline',
+          )
+
+          replace_once(
+              '当前文档对应发布候选：PR #22 `fix/submit-pipeline-recovery`（合并后以 `main` 为准）。',
+              '当前文档对应发布候选：PR #23 `fix/cover-failure-blocks-submit`（合并后以 `main` 为准）。',
+              'release candidate',
+          )
+
+          path.write_text(text, encoding='utf-8')
+          print('CUSTOM_CHANGES.md patched for PR23')
+          PY
+
+      - name: Commit documentation update
+        shell: bash
+        run: |
+          if git diff --quiet -- CUSTOM_CHANGES.md; then
+            echo "No documentation changes needed"
+            exit 0
+          fi
+          git config user.name "Ji JinChi"
+          git config user.email "3109952@qq.com"
+          git add CUSTOM_CHANGES.md
+          git commit -m "docs: document cover failure safety"
+          git push origin HEAD:fix/cover-failure-blocks-submit
