@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,63 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
     if count != 1:
         raise ModifyError(f"{label} anchor changed: expected 1 match, got {count}")
     return text.replace(old, new, 1)
+
+
+def _matching_brace(text: str, open_idx: int) -> int:
+    depth = 0
+    i = open_idx
+    state = "code"
+    block_depth = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if state == "code":
+            if ch in ('"', "'", "`"):
+                state = ch
+            elif ch == "/" and nxt == "/":
+                state = "line_comment"
+                i += 1
+            elif ch == "/" and nxt == "*":
+                state = "block_comment"
+                block_depth = 1
+                i += 1
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return i
+        elif state in ('"', "'", "`"):
+            if ch == "\\":
+                i += 1
+            elif ch == state:
+                state = "code"
+        elif state == "line_comment":
+            if ch == "\n":
+                state = "code"
+        elif state == "block_comment":
+            if ch == "/" and nxt == "*":
+                block_depth += 1
+                i += 1
+            elif ch == "*" and nxt == "/":
+                block_depth -= 1
+                i += 1
+                if block_depth == 0:
+                    state = "code"
+        i += 1
+    raise ModifyError("unbalanced braces")
+
+
+def _function_span(text: str, signature: str) -> tuple[int, int]:
+    idx = text.find(signature)
+    if idx < 0:
+        raise ModifyError(f"expected function signature not found: {signature}")
+    start = text.rfind("\n", 0, idx) + 1
+    open_idx = text.find("{", idx + len(signature))
+    if open_idx < 0:
+        raise ModifyError(f"opening brace not found: {signature}")
+    close_idx = _matching_brace(text, open_idx)
+    return start, close_idx + 1
 
 
 def _modify_ws(text: str) -> str:
@@ -59,29 +117,114 @@ def _modify_logviewer(text: str) -> str:
     refs_new = f'''  const wsRef = useRef<WebSocket | null>(null)\n  // {MARKER}\n  const reconnectTimerRef = useRef<number | null>(null)\n  const allowReconnectRef = useRef(true)\n  const logContainerRef = useRef<HTMLDivElement>(null)\n'''
     text = _replace_once(text, refs_old, refs_new, "logviewer refs")
 
-    connect_start_old = '''  const connectWebSocket = () => {\n    setIsLoading(true)\n    setLogs([])\n\n    // 关闭现有连接\n'''
-    connect_start_new = '''  const connectWebSocket = () => {\n    if (reconnectTimerRef.current !== null) {\n      window.clearTimeout(reconnectTimerRef.current)\n      reconnectTimerRef.current = null\n    }\n\n    setIsLoading(true)\n    setLogs([])\n\n    // 关闭现有连接\n'''
-    text = _replace_once(text, connect_start_old, connect_start_new, "logviewer connect start")
+    start, end = _function_span(text, "const connectWebSocket = () =>")
+    current = text[start:end]
+    required_tokens = (
+        "new WebSocket(wsUrl)",
+        "ws.onopen = () =>",
+        "ws.onmessage = (event) =>",
+        "ws.onerror = (error) =>",
+        "ws.onclose = () =>",
+        "NEXT_PUBLIC_API_SERVER",
+        "/v1/ws/logs?file=${activeTab}.log",
+    )
+    missing = [token for token in required_tokens if token not in current]
+    if missing:
+        raise ModifyError(f"logviewer connectWebSocket shape changed: missing {missing}")
 
-    onopen_old = '''    ws.onopen = () => {\n      setIsConnected(true)\n      setIsLoading(false)\n      Toast.success('日志连接已建立')\n    }\n'''
-    onopen_new = '''    ws.onopen = () => {\n      if (wsRef.current !== ws) return\n      setIsConnected(true)\n      setIsLoading(false)\n      Toast.success('日志连接已建立')\n    }\n'''
-    text = _replace_once(text, onopen_old, onopen_new, "logviewer onopen")
+    connect_replacement = '''  const connectWebSocket = () => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
 
-    onmessage_old = '''    ws.onmessage = (event) => {\n      setLogs(prev => [...prev, event.data])\n    }\n'''
-    onmessage_new = '''    ws.onmessage = (event) => {\n      if (wsRef.current !== ws) return\n      setLogs(prev => [...prev, event.data])\n    }\n'''
-    text = _replace_once(text, onmessage_old, onmessage_new, "logviewer onmessage")
+    setIsLoading(true)
+    setLogs([])
 
-    onerror_old = '''    ws.onerror = (error) => {\n      console.error('WebSocket错误:', error)\n\n      // 检查是否是连接建立前WebSocket已关闭的错误\n      // 这种情况通常发生在组件卸载或用户切换标签时\n      if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {\n        console.log('WebSocket在连接建立前已关闭')\n      } else {\n        // 其他错误仍然显示Toast提示\n        Toast.error('连接错误，请重试')\n      }\n\n      setIsLoading(false)\n    }\n'''
-    onerror_new = '''    ws.onerror = (error) => {\n      if (wsRef.current !== ws) return\n      console.error('WebSocket错误:', error)\n      // onclose 负责统一调度自动重连，避免 error/close 双重重连。\n      setIsLoading(false)\n    }\n'''
-    text = _replace_once(text, onerror_old, onerror_new, "logviewer onerror")
+    // 关闭现有连接。旧 socket 的 onclose 会通过身份检查被忽略。
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
 
-    onclose_old = '''    ws.onclose = () => {\n      setIsConnected(false)\n      console.log('WebSocket连接已关闭')\n    }\n'''
-    onclose_new = '''    ws.onclose = () => {\n      // 已经被新连接替代的旧 socket 不得触发重连。\n      if (wsRef.current !== ws) return\n\n      setIsConnected(false)\n      setIsLoading(false)\n      console.log('WebSocket连接已关闭')\n\n      if (!allowReconnectRef.current) return\n      reconnectTimerRef.current = window.setTimeout(() => {\n        reconnectTimerRef.current = null\n        if (allowReconnectRef.current && wsRef.current === ws) {\n          console.log('重新连接实时日志 WebSocket')\n          connectWebSocket()\n        }\n      }, 3000)\n    }\n'''
-    text = _replace_once(text, onclose_old, onclose_new, "logviewer onclose")
+    const isDev = process.env.NODE_ENV === 'development';
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const server = isDev
+      ? process.env.NEXT_PUBLIC_API_SERVER?.replace(/^http/, 'ws')
+      : `${protocol}//${window.location.host}`;
+    const wsUrl = `${server}/v1/ws/logs?file=${activeTab}.log`;
 
-    effect_old = '''  useEffect(() => {\n    connectWebSocket()\n\n    return () => {\n      // 组件卸载时关闭WebSocket连接\n      if (wsRef.current) {\n        console.log('主动关闭WebSocket连接')\n        wsRef.current.close()\n      }\n    }\n    // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, [activeTab])\n'''
-    effect_new = '''  useEffect(() => {\n    allowReconnectRef.current = true\n    connectWebSocket()\n\n    return () => {\n      // 切换日志文件或组件卸载时，不应由旧连接触发自动重连。\n      allowReconnectRef.current = false\n      if (reconnectTimerRef.current !== null) {\n        window.clearTimeout(reconnectTimerRef.current)\n        reconnectTimerRef.current = null\n      }\n\n      const currentWs = wsRef.current\n      wsRef.current = null\n      if (currentWs) {\n        console.log('主动关闭WebSocket连接')\n        currentWs.close()\n      }\n    }\n    // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, [activeTab])\n'''
-    text = _replace_once(text, effect_old, effect_new, "logviewer effect cleanup")
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      if (wsRef.current !== ws) return
+      setIsConnected(true)
+      setIsLoading(false)
+      Toast.success('日志连接已建立')
+    }
+
+    ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return
+      setLogs(prev => [...prev, event.data])
+    }
+
+    ws.onerror = (error) => {
+      if (wsRef.current !== ws) return
+      console.error('WebSocket错误:', error)
+      // onclose 负责统一调度自动重连，避免 error/close 双重重连。
+      setIsLoading(false)
+    }
+
+    ws.onclose = () => {
+      // 已经被新连接替代的旧 socket 不得触发重连。
+      if (wsRef.current !== ws) return
+
+      setIsConnected(false)
+      setIsLoading(false)
+      console.log('WebSocket连接已关闭')
+
+      if (!allowReconnectRef.current) return
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null
+        if (allowReconnectRef.current && wsRef.current === ws) {
+          console.log('重新连接实时日志 WebSocket')
+          connectWebSocket()
+        }
+      }, 3000)
+    }
+  }'''
+    text = text[:start] + connect_replacement + text[end:]
+
+    effect_pattern = re.compile(
+        r"  useEffect\(\(\) => \{\n    connectWebSocket\(\)\n.*?  \}, \[activeTab\]\)\n",
+        re.DOTALL,
+    )
+    matches = list(effect_pattern.finditer(text))
+    if len(matches) != 1:
+        raise ModifyError(f"logviewer activeTab effect changed: expected 1 match, got {len(matches)}")
+    effect_replacement = '''  useEffect(() => {
+    allowReconnectRef.current = true
+    connectWebSocket()
+
+    return () => {
+      // 切换日志文件或组件卸载时，不应由旧连接触发自动重连。
+      allowReconnectRef.current = false
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+
+      const currentWs = wsRef.current
+      wsRef.current = null
+      if (currentWs) {
+        console.log('主动关闭WebSocket连接')
+        currentWs.close()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+'''
+    text = effect_pattern.sub(effect_replacement, text, count=1)
     return text
 
 
