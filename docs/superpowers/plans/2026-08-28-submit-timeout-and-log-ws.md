@@ -15,7 +15,7 @@
 - Do not touch recording, FLV→MP4, daily numbering, filtering threshold, or postprocessor success semantics.
 - Do not implement automatic App→Web fallback for code 21566.
 - A timeout/final-submit failure must return an error, so successful postprocessing (including `rm`) cannot run.
-- Manual submission background failures must remain observable with `template_id`, `file_count`, and the underlying error.
+- Manual submission background failures keep safe `template_id + file_count` observability; do not persist full upstream error bodies because upload errors can contain short-lived upload authorization.
 - Publish only after Python tests, current-upstream focused Rust tests, full official Docker/WebUI build, container smoke test, multi-arch publish, and published `latest` smoke succeed.
 
 ---
@@ -30,24 +30,24 @@
 - Consumes: upstream `pub async fn submit_to_bilibili(...) -> AppResult<ResponseData>`.
 - Produces: marker `biliup-custom:submit-timeout:v1`, a 90-second bounded final-submit future, start/timeout logs, unchanged successful `Submit successful` behavior.
 
-- [ ] Write a failing fixture test that requires timeout wrapping, start log, timeout error, all three submit API branches, and idempotency.
-- [ ] Run the Python suite and confirm the new test fails before implementation.
-- [ ] Implement the minimal structural modifier.
-- [ ] Run the Python suite and confirm it passes.
+- [x] Write a failing fixture test that requires timeout wrapping, start log, timeout error, all three submit API branches, and idempotency.
+- [x] Run the Python suite and confirm the new test fails before implementation.
+- [x] Implement the minimal structural modifier.
+- [x] Run the Python suite and confirm it passes.
 
-### Task 2: Improve manual-upload background failure details
+### Task 2: Preserve safe manual-upload failure logging
 
 **Files:**
-- Modify: `scripts/fix_manual_upload_feedback.py`
-- Modify: `tests/test_manual_upload_feedback_modifier.py`
+- Review: `scripts/fix_manual_upload_feedback.py`
+- Review: `tests/test_manual_upload_feedback_modifier.py`
 
 **Interfaces:**
-- Consumes: the existing `result` returned by the manual background upload task.
-- Produces: `tracing::error!(template_id, file_count, error = ?e, "页面上传失败")`.
+- Consumes: the existing manual background task result.
+- Produces: safe failure logging with `template_id + file_count`, while final-submit timeout has its own explicit stage/error log.
 
-- [ ] Add a regression assertion for the underlying error field.
-- [ ] Update the modifier without changing request acceptance behavior.
-- [ ] Run the Python suite.
+- [x] Review the tempting `error = ?e` change against current upstream comments.
+- [x] Reject that change because upstream upload errors can wrap short-lived authorization material.
+- [x] Restore the existing safe logging behavior and keep final-submit-specific diagnostics in `fix_submit_timeout.py`.
 
 ### Task 3: Wire modifier into every build path and documentation
 
@@ -62,17 +62,17 @@
 - Consumes: `scripts/fix_submit_timeout.py`.
 - Produces: identical modifier order across local test/build, Docker validation, and release publishing.
 
-- [ ] Add the new modifier after manual-upload feedback and WebSocket resilience.
+- [x] Add the new modifier after manual-upload feedback and WebSocket resilience.
 - [ ] Document 90-second final-submit timeout, stage logs, failure/file-safety semantics, marker, tests, affected upstream file, and PR timeline.
 
 ### Task 4: Verification and release
 
 **Files:** none beyond fixes required by verification.
 
-- [ ] Confirm Python modifier tests pass.
+- [ ] Confirm Python modifier tests pass on the final head.
 - [ ] Confirm focused Rust tests pass against current upstream master.
 - [ ] Confirm official Dockerfile/WebUI build and smoke test pass.
-- [ ] Review PR diff for recording/upload safety invariants.
+- [ ] Review PR diff for recording/upload safety invariants and secret-safe logging.
 - [ ] Merge PR to `main` only after all PR checks are green.
 - [ ] Confirm `publish.yml` succeeds for amd64 + arm64, manifest creation, pull, and `--help` smoke.
 - [ ] Only then tell the NAS user to `docker compose pull && docker compose up -d`.
