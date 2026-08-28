@@ -28,6 +28,7 @@ python "$ROOT/scripts/fix_manual_upload_feedback.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/fix_log_websocket_resilience.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/fix_submit_timeout.py" "$UPSTREAM_DIR"
 python "$ROOT/scripts/fix_submit_pipeline_recovery.py" "$UPSTREAM_DIR"
+python "$ROOT/scripts/fix_cover_failure_safety.py" "$UPSTREAM_DIR"
 
 docker build \
   --label "org.opencontainers.image.source=https://github.com/jijc/biliup-custom" \
