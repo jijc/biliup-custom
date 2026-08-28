@@ -164,6 +164,22 @@ class SubmitPipelineRecoveryModifierTests(unittest.TestCase):
             self.assertEqual(upload.count("submit_by_web(studio, None)"), 1)
             self.assertEqual(upload.count("submit_by_app(studio, None)"), 1)
 
+    def test_modifier_is_wired_into_all_build_paths(self):
+        paths = [
+            Path("scripts/apply-and-test.sh"),
+            Path("scripts/build-image.sh"),
+            Path(".github/workflows/docker-validate.yml"),
+            Path(".github/workflows/publish.yml"),
+        ]
+        for path in paths:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path)):
+                self.assertIn("fix_submit_pipeline_recovery.py", text)
+                self.assertLess(
+                    text.index("fix_submit_timeout.py"),
+                    text.index("fix_submit_pipeline_recovery.py"),
+                )
+
     def test_modifier_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
