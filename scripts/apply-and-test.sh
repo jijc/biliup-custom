@@ -40,6 +40,7 @@ run_modifier fix_recordings_browser.py
 run_modifier fix_manual_upload_feedback.py
 run_modifier fix_log_websocket_resilience.py
 run_modifier fix_submit_timeout.py
+run_modifier fix_submit_pipeline_recovery.py
 
 # biliup-cli embeds the already-built WebUI at compile time. The official
 # Dockerfile builds it first; focused Rust tests only need the directory to
