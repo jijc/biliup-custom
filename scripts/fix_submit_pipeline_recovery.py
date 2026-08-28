@@ -330,15 +330,27 @@ def _modify_build_studio(text: str) -> str:
         + function[insert_at:]
     )
 
-    cover_old = '''    if !studio.cover.is_empty()
-        && let Ok(c) = &std::fs::read(&studio.cover).inspect_err(|e| error!(e=?e))
-        && let Ok(url) = bilibili.cover_up(c).await.inspect_err(|e| error!(e=?e))
-    {
-        studio.cover = url;
-    }
-'''
-    if function.count(cover_old) != 1:
-        raise ModifyError("build_studio cover upload anchor changed")
+    cover_start = function.find("    if !studio.cover.is_empty()")
+    if cover_start < 0:
+        raise ModifyError("build_studio cover upload start changed")
+    cover_open = function.find("{", cover_start)
+    if cover_open < 0:
+        raise ModifyError("build_studio cover upload opening brace missing")
+    cover_close = _matching_brace(function, cover_open)
+    cover_end = cover_close + 1
+    if cover_end < len(function) and function[cover_end] == ";":
+        cover_end += 1
+    if cover_end < len(function) and function[cover_end] == "\n":
+        cover_end += 1
+    cover_current = function[cover_start:cover_end]
+    required_cover_tokens = [
+        "std::fs::read(&studio.cover)",
+        "bilibili.cover_up(c).await",
+        "studio.cover = url;",
+    ]
+    missing = [token for token in required_cover_tokens if token not in cover_current]
+    if missing:
+        raise ModifyError(f"build_studio cover upload shape changed: missing {missing}")
 
     cover_new = '''    if !studio.cover.is_empty() {
         let cover_path = studio.cover.clone();
@@ -376,7 +388,7 @@ def _modify_build_studio(text: str) -> str:
     }
     info!(has_cover = !studio.cover.is_empty(), "B站稿件信息构建完成");
 '''
-    function = function.replace(cover_old, cover_new, 1)
+    function = function[:cover_start] + cover_new + function[cover_end:]
     return text[:start] + function + text[end:]
 
 
