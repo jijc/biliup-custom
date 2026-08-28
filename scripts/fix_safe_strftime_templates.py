@@ -20,6 +20,14 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_one_shape(text: str, shapes: list[tuple[str, str]], label: str) -> str:
+    matches = [(old, new) for old, new in shapes if old in text]
+    if len(matches) != 1:
+        raise ModifyError(f"{label}: expected exactly one supported upstream/custom shape, got {len(matches)}")
+    old, new = matches[0]
+    return text.replace(old, new, 1)
+
+
 def modify(upstream: Path) -> None:
     path = upstream / UTIL_REL
     if not path.is_file():
@@ -36,7 +44,7 @@ def modify(upstream: Path) -> None:
     helper = f'''// {MARKER}
 // Chrono's DateTime::format(...).to_string() panics when a user-supplied
 // strftime template contains an invalid specifier (for example `%日`).
-// Upload titles/descriptions and recording filename templates are user data,
+// Upload titles/descriptions and Recorder filename templates are user data,
 // so never allow one malformed `%` sequence to unwind a background task.
 fn safe_local_format(datetime: &chrono::DateTime<Local>, template: &str) -> String {{
     match chrono::format::StrftimeItems::new(template).parse() {{
@@ -57,24 +65,48 @@ fn safe_local_format(datetime: &chrono::DateTime<Local>, template: &str) -> Stri
 '''
     text = replace_once(text, "impl Recorder {\n", helper + "impl Recorder {\n", "Recorder impl")
 
-    text = replace_once(
+    text = replace_one_shape(
         text,
-        "            let base = t.format(&template).to_string();",
-        "            let base = safe_local_format(&t, &template);",
+        [
+            (
+                "            let base = t.format(&template).to_string();",
+                "            let base = safe_local_format(&t, &template);",
+            ),
+            (
+                '''            let rendered = render_record_date(&template, t.naive_local());
+            let base = t.format(&rendered).to_string();''',
+                '''            let rendered = render_record_date(&template, t.naive_local());
+            let base = safe_local_format(&t, &rendered);''',
+            ),
+        ],
         "generate_filename format",
     )
 
-    text = replace_once(
+    text = replace_one_shape(
         text,
-        '''        self.streamer_info
+        [
+            (
+                '''        self.streamer_info
             .date
             .with_timezone(&Local)
             .format(&template)
             .to_string()
 ''',
-        '''        let date = self.streamer_info.date.with_timezone(&Local);
+                '''        let date = self.streamer_info.date.with_timezone(&Local);
         safe_local_format(&date, &template)
 ''',
+            ),
+            (
+                '''        let t = self.streamer_info.date.with_timezone(&Local);
+        let rendered = render_record_date(&template, t.naive_local());
+        t.format(&rendered).to_string()
+''',
+                '''        let t = self.streamer_info.date.with_timezone(&Local);
+        let rendered = render_record_date(&template, t.naive_local());
+        safe_local_format(&t, &rendered)
+''',
+            ),
+        ],
         "format_filename",
     )
 
