@@ -56,6 +56,8 @@ ENDPOINTS_RS = r'''pub async fn post_uploads(
         }
         .await;
         if result.is_err() {
+            // Upstream may keep explanatory comments between the condition and
+            // the actual error log. The modifier must not depend on adjacency.
             tracing::error!(template_id = upload_config.id, "页面上传失败");
         }
     });
