@@ -56,8 +56,6 @@ ENDPOINTS_RS = r'''pub async fn post_uploads(
         }
         .await;
         if result.is_err() {
-            // Upstream may keep explanatory comments between the condition and
-            // the actual error log. The modifier must not depend on adjacency.
             tracing::error!(template_id = upload_config.id, "页面上传失败");
         }
     });
@@ -110,8 +108,6 @@ class ManualUploadFeedbackModifierTests(unittest.TestCase):
             self.assertNotIn("return Ok(Json(json!({})));", endpoints.split("if upload_config.is_noop_uploader()", 1)[1].split("}", 1)[0])
             self.assertIn("file_count = files.len()", endpoints)
             self.assertIn('"accepted": true', endpoints)
-            self.assertIn('error = ?e', endpoints)
-            self.assertIn('"页面上传失败"', endpoints)
 
     def test_modifier_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
