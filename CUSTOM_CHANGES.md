@@ -120,6 +120,8 @@ ghcr.io/jijc/biliup-custom:latest
 11. fix_missing_upload_template_safety.py
 12. fix_recordings_browser.py
 13. fix_manual_upload_feedback.py
+14. fix_log_websocket_resilience.py
+15. fix_submit_timeout.py
 ```
 
 对应入口必须保持一致：
@@ -1351,6 +1353,223 @@ Noop 不得伪装成功
 
 ---
 
+## 4.17 实时日志 WebSocket 心跳、降噪与自动重连
+
+**PR #21（2026-08-28）**
+
+修改器：
+
+```text
+scripts/fix_log_websocket_resilience.py
+```
+
+修改官方文件：
+
+```text
+crates/biliup-cli/src/server/api/ws.rs
+app/(app)/logviewer/page.tsx
+```
+
+Marker：
+
+```text
+biliup-custom:log-websocket-resilience:v1
+```
+
+### 原问题
+
+WebUI 的“实时日志”页面通过 `/v1/ws/logs` 建立 WebSocket 长连接。官方后端会响应客户端 `Ping`，但不会主动发送协议级心跳；官方前端在 `onclose` 后也不会自动重连。
+
+在浏览器刷新、页面切换、网络抖动、反向代理清理空闲连接等情况下，服务端常见：
+
+```text
+WebSocket protocol error: Connection reset without closing handshake
+```
+
+旧代码把这种常见的连接生命周期事件统一记为 `ERROR`，容易让人误判为录制或上传失败。
+
+### 当前后端行为
+
+- 保留 500ms 日志文件增量轮询；
+- 另外每 **25 秒**发送一次 WebSocket `Ping`，降低反向代理/中间网络设备清理空闲连接的概率；
+- 浏览器按 WebSocket 协议自动处理 `Pong`，不向日志正文注入伪心跳文本；
+- `without closing handshake`、`Connection reset`、`Connection closed` 等预期断连降为 `debug`；
+- 其它真正异常仍保持 `error`，不能一律吞掉；
+- 心跳发送失败按“连接已经断开”处理并结束该日志会话。
+
+### 当前前端行为
+
+- 当前活动 WebSocket 意外关闭后 **3 秒自动重连**；
+- `onerror` 不单独发起重连，避免与 `onclose` 形成双重重试；
+- 所有回调都检查 `wsRef.current === ws`，旧 socket 被新连接替代后不能污染当前状态；
+- 切换日志 Tab 或组件卸载时会清除重连定时器、禁止旧连接自动复活；
+- 手动刷新创建新连接时，旧连接的 `onclose` 不会再触发“幽灵重连”。
+
+### 非目标
+
+这个修改只作用于**实时日志传输链路**：
+
+```text
+/v1/ws/logs
+```
+
+它不修改：
+
+- 抖音开播检测；
+- 录像下载；
+- FLV→MP4；
+- B站文件上传；
+- B站最终投稿。
+
+因此以后看到实时日志 WebSocket 断线，仍应和录制/上传业务错误分开判断。
+
+### 回归测试
+
+```text
+tests/test_log_websocket_resilience_modifier.py
+```
+
+覆盖：
+
+- 服务端 25 秒协议级心跳；
+- 常见 reset/closing-handshake 断连日志降级；
+- 前端 3 秒自动重连；
+- stale socket 防护；
+- modifier 幂等执行。
+
+### 同步官方时重点检查
+
+如果官方以后已经原生实现协议级心跳、断线自动重连和合理的断连日志分级，modifier 应返回 `42 / native-review` 或人工删除，避免两套重连/心跳机制叠加。
+
+---
+
+## 4.18 B站最终投稿 90 秒超时与阶段日志
+
+**PR #21（2026-08-28）**
+
+修改器：
+
+```text
+scripts/fix_submit_timeout.py
+```
+
+修改官方文件：
+
+```text
+crates/biliup-cli/src/server/common/upload.rs
+```
+
+Marker：
+
+```text
+biliup-custom:submit-timeout:v1
+```
+
+### 原问题
+
+多 P 手动投稿或自动投稿时，所有视频文件都可能已经出现：
+
+```text
+Upload completed: ...
+```
+
+但文件上传完成后还必须执行一次最终的 B站 create/submit 请求，只有这一步成功才算稿件真正提交。官方 HTTP client 目前只有连接超时，缺少覆盖整个最终投稿 future 的明确上限；如果连接已经建立但响应长期不返回，日志可能在最后一个 `Upload completed` 后长时间没有任何成功或失败结论。
+
+### 当前行为
+
+`submit_to_bilibili()` 在真正调用 B站最终投稿接口前先输出：
+
+```text
+开始提交B站稿件
+```
+
+并带上：
+
+```text
+submit_api
+title
+part_count
+timeout_secs
+```
+
+最终投稿 future 统一由 Tokio timeout 包裹：
+
+```text
+90 秒
+```
+
+适用于当前已有的：
+
+```text
+App
+Web
+BCut Android
+```
+
+三种提交方式。这个修改**不改变提交方式选择，也没有实现 App -> Web 自动 fallback**。
+
+### 超时语义
+
+超过 90 秒仍没有拿到最终响应时：
+
+```text
+ERROR B站最终投稿请求超时
+```
+
+任务返回错误，错误文案明确使用：
+
+```text
+文件上传已完成但稿件未确认提交成功
+```
+
+这里故意写“未确认”，而不是“投稿失败”。网络超时存在不确定性：远端可能在客户端放弃等待前后已经收到请求。因此发生超时时，**先到 B站创作中心检查是否已经出现稿件/BV，再决定是否重新投稿**，避免重复稿件。
+
+### 文件安全边界
+
+自动投稿链路中，`submit_to_bilibili()` 的错误会直接向上返回，因此：
+
+```text
+最终投稿超时/失败
+-> 不进入成功后的 postprocessor
+-> 如果配置 postprocessor=rm，也不能因为这次超时删除本地录像
+```
+
+这和既有 21566 安全语义一致：只有最终投稿成功后，才允许继续成功后的后处理。
+
+手动投稿本身没有自动 `rm` 成功后处理；后台任务仍会通过 `template_id + file_count` 的安全日志定位任务。不要把完整上传 `error_stack` Debug 持久化到 Web 日志，因为官方上传错误可能包裹短期上传授权信息。
+
+### 成功判据
+
+90 秒超时保护不会降低成功标准。仍必须看到 B站正常返回以及：
+
+```text
+Web 接口投稿成功   # submit_api=web 时
+Submit successful
+```
+
+才能确认稿件提交成功。仅有各 P 的 `Upload completed` 仍然不等于投稿成功。
+
+### 回归测试
+
+```text
+tests/test_submit_timeout_modifier.py
+```
+
+覆盖：
+
+- 最终投稿 90 秒上限；
+- 投稿开始阶段日志；
+- 超时错误语义；
+- App/Web/BCut 三条原有分支各保留一次；
+- 禁止借此偷偷加入 App -> Web fallback；
+- modifier 幂等执行。
+
+### 同步官方时重点检查
+
+如果官方以后已经为最终 create/submit 提供等价的完整请求超时与阶段日志，应触发 `42 / native-review` 并人工评估删除本 modifier，避免双重 timeout。
+
+---
+
 # 5. `filtering_threshold`：我们明确保持官方行为
 
 **这一项当前故意不改。**
@@ -1433,6 +1652,21 @@ web
 
 不要在文档或代码里假设这个 fallback 已存在。
 
+## 6.5 最终投稿 90 秒超时
+
+文件分片全部上传完成后，最终 create/submit 最多等待 90 秒。
+
+如果超时：
+
+```text
+本地任务返回错误
+不执行成功 postprocessor
+本地录像保留
+稿件状态 = 未确认
+```
+
+因为 timeout 不能证明远端一定没有处理请求，重新点“小飞机”或重新触发自动投稿前，应先检查 B站创作中心是否已经有对应稿件/BV。
+
 ---
 
 # 7. 当前明确“不做”的功能
@@ -1475,6 +1709,8 @@ biliup-custom:recordings-static:v1
 biliup-custom:recordings-history:v1
 biliup-custom:recordings-upload-picker:v1
 biliup-custom:manual-upload-feedback:v1
+biliup-custom:log-websocket-resilience:v1
+biliup-custom:submit-timeout:v1
 ```
 
 缺任意一个都要确认：
@@ -1502,6 +1738,7 @@ crates/danmaku/src/client.rs
 crates/stream-gears/src/server.rs
 crates/biliup-cli/src/server/infrastructure/repositories.rs
 crates/biliup-cli/src/server/api/endpoints.rs
+crates/biliup-cli/src/server/api/ws.rs
 crates/biliup-cli/src/lib.rs
 crates/biliup-cli/src/server/core/monitor.rs
 crates/biliup-cli/src/server/router.rs
@@ -1516,6 +1753,7 @@ app/(app)/streamers/page.tsx
 app/(app)/history/page.tsx
 app/(app)/upload-manager/page.tsx
 app/(app)/upload-manager/edit/page.tsx
+app/(app)/logviewer/page.tsx
 app/ui/OverrideModal.tsx
 app/lib/api-streamer.ts
 ```
@@ -1549,6 +1787,12 @@ tests/test_danmaku_recording_path_modifier.py
 
 tests/test_server_log_modifier.py
   -> download.log 保留 + ds_update.log 恢复
+
+tests/test_log_websocket_resilience_modifier.py
+  -> 实时日志 25 秒心跳、预期断连降级、3 秒自动重连、stale socket 防护
+
+tests/test_submit_timeout_modifier.py
+  -> B站最终投稿 90 秒超时、阶段日志、三种提交分支保持、无自动 fallback、幂等
 
 tests/test_product_customizations.py
   -> Pause 持久化、UI 列宽/高度/状态角标
@@ -1686,7 +1930,9 @@ native-review
 - Pause 持久化；
 - `/recordings` 浏览；
 - partial update；
-- 无模板文件安全保护。
+- 无模板文件安全保护；
+- 实时日志 WebSocket 心跳/自动重连；
+- B站最终 create/submit 的完整超时与阶段日志。
 
 如果官方已经原生实现，应优先删除我们的 modifier，而不是维护重复实现。
 
@@ -1729,6 +1975,27 @@ filtering_threshold 继续按用户设置过滤
 UI 主动清空可选主播字段必须显式发送 null
 显式 null 才允许清空
 手动投稿 Noop 不得静默成功，任务受理必须有 UI 提示和 template_id/file_count 日志
+```
+
+### 实时日志
+
+```text
+服务端协议级 Ping 间隔保持 25 秒
+常见 reset/无 closing handshake 不能污染 ERROR 日志
+真正未知 WebSocket 错误仍保留 ERROR
+前端意外断线 3 秒自动重连
+切换 Tab / 卸载时旧 socket 不得幽灵重连
+```
+
+### 最终投稿
+
+```text
+所有 P 的 Upload completed != 稿件提交成功
+最终 create/submit 最多等待 90 秒
+超时必须返回错误并阻断成功 postprocessor/rm
+超时只表示“未确认提交成功”，不能断言远端一定没收到
+超时后重试前先检查 B站创作中心，避免重复稿件
+不得因此引入 21566 App -> Web 自动 fallback
 ```
 
 ## E. 全部验证
@@ -1798,6 +2065,7 @@ PR #16 2026-08-27  投稿/文件名模板丢失修复 + partial update + 无模�
 PR #17 2026-08-28  可选主播字段主动清空发送 null，恢复单主播继承全局配置
 PR #18 2026-08-28  配置覆写只提交 id + override，禁止污染主播主字段
 PR #20 2026-08-28  手动投稿显式反馈 + Noop 拒绝 + template_id/file_count 日志（#19 为独立验证 PR）
+PR #21 2026-08-28  实时日志 WebSocket 心跳/重连 + 最终投稿 90 秒超时与阶段日志
 ```
 
 已知主线关键 merge commit（可用于事故追踪，不能代替本文档）：
@@ -1858,4 +2126,4 @@ docker compose up -d
 
 最后更新：2026-08-28
 
-当前文档对应最终发布候选：`release/final-20260828`（PR #20，合并后以 `main` 为准）。
+当前文档对应发布候选：PR #21 `fix/ws-log-heartbeat-reconnect`（合并后以 `main` 为准）。
