@@ -78,6 +78,14 @@ fn safe_local_format(datetime: &chrono::DateTime<Local>, template: &str) -> Stri
                 '''            let rendered = render_record_date(&template, t.naive_local());
             let base = safe_local_format(&t, &rendered);''',
             ),
+            (
+                '''            let rendered = render_record_date(&template, t.naive_local());
+            let rendered = strip_daily_sequence_token(&rendered);
+            let base = t.format(&rendered).to_string();''',
+                '''            let rendered = render_record_date(&template, t.naive_local());
+            let rendered = strip_daily_sequence_token(&rendered);
+            let base = safe_local_format(&t, &rendered);''',
+            ),
         ],
         "generate_filename format",
     )
@@ -103,6 +111,18 @@ fn safe_local_format(datetime: &chrono::DateTime<Local>, template: &str) -> Stri
 ''',
                 '''        let t = self.streamer_info.date.with_timezone(&Local);
         let rendered = render_record_date(&template, t.naive_local());
+        safe_local_format(&t, &rendered)
+''',
+            ),
+            (
+                '''        let t = self.streamer_info.date.with_timezone(&Local);
+        let rendered = render_record_date(&template, t.naive_local());
+        let rendered = strip_daily_sequence_token(&rendered);
+        t.format(&rendered).to_string()
+''',
+                '''        let t = self.streamer_info.date.with_timezone(&Local);
+        let rendered = render_record_date(&template, t.naive_local());
+        let rendered = strip_daily_sequence_token(&rendered);
         safe_local_format(&t, &rendered)
 ''',
             ),
