@@ -167,14 +167,17 @@ def _modify_endpoints(text: str) -> str:
 '''
     function = function.replace(info_old, info_new, 1)
 
-    error_old = '            tracing::error!(template_id = upload_config.id, "页面上传失败");\n'
+    error_old = '''        if result.is_err() {
+            tracing::error!(template_id = upload_config.id, "页面上传失败");
+        }
+'''
     if function.count(error_old) != 1:
-        raise ModifyError("manual upload error log anchor changed")
-    function = function.replace(
-        error_old,
-        '            tracing::error!(template_id, file_count, "页面上传失败");\n',
-        1,
-    )
+        raise ModifyError("manual upload error block anchor changed")
+    error_new = '''        if let Err(e) = result {
+            tracing::error!(template_id, file_count, error = ?e, "页面上传失败");
+        }
+'''
+    function = function.replace(error_old, error_new, 1)
 
     response_old = "    Ok(Json(serde_json::json!({})))\n"
     if function.count(response_old) != 1:
