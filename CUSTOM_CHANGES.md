@@ -1795,7 +1795,7 @@ tests/test_submit_pipeline_recovery_modifier.py
 覆盖：
 
 - 封面 30 秒 timeout；
-- 封面失败/超时清空 cover 并继续；
+- 封面失败/超时由后续 PR #23 safety modifier 阻断最终投稿；
 - build_studio 阶段日志；
 - timeout 后远端全状态稿件确认；
 - 至少两次成功 negative check 才允许最终 submit 重试；
@@ -1807,7 +1807,7 @@ tests/test_submit_pipeline_recovery_modifier.py
 
 ### 同步官方时重点检查
 
-如果官方以后原生提供 cover upload 完整 timeout/降级、最终 submit 的幂等机制、上传完成后的稿件状态确认，或持久化的“只重试 submit、不重传媒体”能力，应先人工比较语义，再决定删除/缩减本 modifier，不能叠加两套重试机制。
+如果官方以后原生提供 cover upload 完整 timeout/明确失败语义、最终 submit 的幂等机制、上传完成后的稿件状态确认，或持久化的“只重试 submit、不重传媒体”能力，应先人工比较语义，再决定删除/缩减本 modifier，不能叠加两套重试机制。
 
 ---
 
