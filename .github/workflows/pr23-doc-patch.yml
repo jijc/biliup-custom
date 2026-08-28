@@ -58,8 +58,8 @@ jobs:
           )
 
           replace_once(
-              'biliup-custom:submit-pipeline-recovery:v1\n```',
-              'biliup-custom:submit-pipeline-recovery:v1\nbiliup-custom:cover-failure-safety:v1\n```',
+              'biliup-custom:submit-timeout:v1\nbiliup-custom:submit-pipeline-recovery:v1\n```',
+              'biliup-custom:submit-timeout:v1\nbiliup-custom:submit-pipeline-recovery:v1\nbiliup-custom:cover-failure-safety:v1\n```',
               'marker list',
           )
 
