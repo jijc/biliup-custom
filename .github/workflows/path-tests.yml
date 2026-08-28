@@ -1,0 +1,67 @@
+name: Recording path tests
+
+on:
+  push:
+    branches:
+      - implement/recording-paths
+    paths:
+      - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/path-tests.yml'
+      - '.github/workflows/sync-and-build.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/path-tests.yml'
+      - '.github/workflows/sync-and-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout custom repo
+        uses: actions/checkout@v7
+
+      - name: Run upstream capability probe tests
+        run: python3 -m unittest tests/test_check_upstream_native.py -v
+
+      - name: Validate workflow YAML and GitHub Actions expressions
+        run: |
+          ruby -e "require 'yaml'; YAML.load_file('.github/workflows/sync-and-build.yml', aliases: true); puts 'workflow yaml ok'"
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml
+
+      - name: Checkout current upstream and apply custom patcher
+        run: |
+          git clone --depth 1 https://github.com/biliup/biliup.git upstream
+          python3 patches/apply_recording_paths.py upstream
+          mkdir -p upstream/out
+          printf '<!doctype html><title>test</title>\n' > upstream/out/index.html
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream
+
+      - name: Format and check only custom-modified Rust files
+        run: |
+          rustfmt --edition 2024 \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
+          rustfmt --edition 2024 --check \
+            upstream/crates/biliup-cli/src/server/common/util.rs \
+            upstream/crates/biliup/src/downloader/util.rs
+
+      - name: Run full biliup package test suite
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup -- --nocapture
+
+      - name: Run full biliup-cli package test suite
+        run: cargo test --manifest-path upstream/Cargo.toml -p biliup-cli -- --nocapture
