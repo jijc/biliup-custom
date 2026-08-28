@@ -123,6 +123,7 @@ ghcr.io/jijc/biliup-custom:latest
 14. fix_log_websocket_resilience.py
 15. fix_submit_timeout.py
 16. fix_submit_pipeline_recovery.py
+17. fix_cover_failure_safety.py
 ```
 
 对应入口必须保持一致：
@@ -1670,11 +1671,13 @@ B站稿件信息构建完成
 如果封面文件读取失败、B站封面上传明确失败，或者 30 秒仍没有返回：
 
 ```text
-清空 studio.cover
-继续无自定义封面投稿
+停止本次投稿
+不进入最终 submit
+不执行成功 postprocessor/rm
+本地录像保留
 ```
 
-这里选择“无封面继续投稿”，是因为媒体内容本身已经上传完成，不能因为一个可降级的封面请求让整份稿件永远卡死。
+**PR #23 修正：**不能把已配置的自定义封面失败简单等价为“未配置封面”。当前 biliup 的 `Studio.cover` 是普通 `String`；清空后会形成空字符串值，而不是可靠地省略 `cover` 字段。为避免拿 `cover: ""` 继续试探 B站投稿接口，配置了自定义封面时必须先成功取得 B站封面 URL，失败或超时就终止本次投稿。
 
 ### 最终 submit 超时后的安全恢复
 
@@ -1805,6 +1808,87 @@ tests/test_submit_pipeline_recovery_modifier.py
 ### 同步官方时重点检查
 
 如果官方以后原生提供 cover upload 完整 timeout/降级、最终 submit 的幂等机制、上传完成后的稿件状态确认，或持久化的“只重试 submit、不重传媒体”能力，应先人工比较语义，再决定删除/缩减本 modifier，不能叠加两套重试机制。
+
+---
+
+## 4.20 自定义封面失败必须阻断最终投稿
+
+**PR #23（2026-08-28）**
+
+修改器：
+
+```text
+scripts/fix_cover_failure_safety.py
+```
+
+依赖顺序：
+
+```text
+fix_submit_timeout.py
+-> fix_submit_pipeline_recovery.py
+-> fix_cover_failure_safety.py
+```
+
+修改官方文件：
+
+```text
+crates/biliup-cli/src/server/common/upload.rs
+```
+
+Marker：
+
+```text
+biliup-custom:cover-failure-safety:v1
+```
+
+### 为什么需要这一层
+
+PR #22 为封面上传增加了 30 秒 timeout，但最初在封面失败/超时时会 `studio.cover.clear()` 后继续投稿。复核当前 biliup 结构后发现，`Studio.cover` 是普通可序列化 `String`，空字符串与“完全不发送 cover 字段”不是同一个语义。
+
+因此 PR #23 改为 fail-closed：
+
+```text
+投稿模板没有自定义封面
+-> 保持官方原有行为，不额外强制封面
+
+投稿模板配置了自定义封面
+-> 必须读取本地封面成功
+-> 必须在 30 秒内上传到 B站并取得远端 URL
+-> 才允许进入最终 create/submit
+```
+
+如果封面读取失败、上传明确失败或 30 秒超时：
+
+```text
+ERROR 明确记录封面阶段失败
+-> build_studio 返回 Err
+-> 不进入最终 submit
+-> 不进入成功 postprocessor
+-> postprocessor=rm 不执行
+-> 本地录像保留
+```
+
+### 非目标
+
+这不是“强制所有投稿都必须手工配置封面”。如果模板从一开始就没有配置自定义 `cover_path`，继续保持 biliup 官方行为。本修复只禁止：**明明配置了自定义封面，但封面处理失败后把 cover 清空继续提交。**
+
+### 回归测试
+
+```text
+tests/test_cover_failure_blocks_submit.py
+```
+
+覆盖：
+
+- recovery modifier 后再执行 cover safety modifier；
+- 禁止残留 `studio.cover.clear()`；
+- 读取失败/上传失败/timeout 三种情况全部停止投稿；
+- modifier 幂等；
+- 四条 build/validate/publish 链路必须在 recovery 后执行本 modifier。
+
+### 同步官方时重点检查
+
+如果官方以后把 `cover` 改成真正可省略字段、提供明确的自动取帧封面语义，或把封面上传移到媒体上传之前，应重新评估这一 fail-closed 策略，而不是机械保留。
 
 ---
 
@@ -1970,6 +2054,7 @@ biliup-custom:manual-upload-feedback:v1
 biliup-custom:log-websocket-resilience:v1
 biliup-custom:submit-timeout:v1
 biliup-custom:submit-pipeline-recovery:v1
+biliup-custom:cover-failure-safety:v1
 ```
 
 缺任意一个都要确认：
@@ -2054,7 +2139,10 @@ tests/test_submit_timeout_modifier.py
   -> B站最终投稿 90 秒超时、阶段日志、三种提交分支保持、无自动 fallback、幂等
 
 tests/test_submit_pipeline_recovery_modifier.py
-  -> 封面 timeout/降级、远端稿件确认、只重试最终 submit、四条构建链路接入、幂等
+  -> 封面 timeout、远端稿件确认、只重试最终 submit、四条构建链路接入、幂等
+
+tests/test_cover_failure_blocks_submit.py
+  -> 自定义封面失败/超时阻断最终投稿、禁止空 cover 继续、四条链路顺序、幂等
 
 tests/test_product_customizations.py
   -> Pause 持久化、UI 列宽/高度/状态角标
@@ -2254,7 +2342,7 @@ UI 主动清空可选主播字段必须显式发送 null
 
 ```text
 所有 P 的 Upload completed != 稿件提交成功
-build_studio 的自定义封面上传最多等待 30 秒，失败/超时清空 cover 后继续
+build_studio 的自定义封面上传最多等待 30 秒；若已配置自定义封面，读取/上传失败或超时必须阻断最终 submit
 最终 create/submit 每次最多等待 90 秒
 只有 timeout 这种“结果未知”允许进入远端确认
 远端确认覆盖 is_pubing,pubed,not_pubed
@@ -2334,7 +2422,8 @@ PR #17 2026-08-28  可选主播字段主动清空发送 null，恢复单主播�
 PR #18 2026-08-28  配置覆写只提交 id + override，禁止污染主播主字段
 PR #20 2026-08-28  手动投稿显式反馈 + Noop 拒绝 + template_id/file_count 日志（#19 为独立验证 PR）
 PR #21 2026-08-28  实时日志 WebSocket 心跳/重连 + 最终投稿 90 秒超时与阶段日志
-PR #22 2026-08-28  上传完成无稿件恢复：封面 timeout/降级 + 远端确认 + 最终 submit 单次重试
+PR #22 2026-08-28  上传完成无稿件恢复：封面 timeout + 远端确认 + 最终 submit 单次重试
+PR #23 2026-08-28  自定义封面失败 fail-closed：禁止空 cover 继续最终投稿
 ```
 
 已知主线关键 merge commit（可用于事故追踪，不能代替本文档）：
@@ -2395,4 +2484,4 @@ docker compose up -d
 
 最后更新：2026-08-28
 
-当前文档对应发布候选：PR #22 `fix/submit-pipeline-recovery`（合并后以 `main` 为准）。
+当前文档对应发布候选：PR #23 `fix/cover-failure-blocks-submit`（合并后以 `main` 为准）。
