@@ -194,7 +194,8 @@ class ConfigSafetyCustomizationTests(unittest.TestCase):
             self.assertNotIn("      'upload_id',", modal)
             self.assertNotIn("      'split_time',", modal)
             self.assertNotIn("      'split_size',", modal)
-            self.assertIn("await onOk({ ...entity, ...cleanValues })", modal)
+            self.assertIn("await onOk({ id: entity?.id, override: cleanValues.override })", modal)
+            self.assertNotIn("await onOk({ ...entity, ...cleanValues })", modal)
 
     def test_optional_streamer_fields_can_be_explicitly_cleared(self):
         with tempfile.TemporaryDirectory() as tmp:
