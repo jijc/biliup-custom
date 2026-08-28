@@ -66,15 +66,15 @@ def _modify_override_modal(text: str) -> str:
     block = block.replace(anchor, f"    // {MODAL_MARKER}\n" + anchor, 1)
     text = text[:start] + block + text[end:]
 
-    # Fail-safe against future top-level fields being added by the backend.
-    # The override dialog edits only a subset, so untouched fields must be
-    # carried forward from the original API entity instead of disappearing from
-    # the full-row PUT payload.
+    # The backend now applies JSON PATCH-like semantics for streamer updates.
+    # OverrideModal must therefore submit only the row id and the override patch.
+    # Sending the full API entity would materialize inherited/global values such
+    # as filename_prefix into the per-streamer database row.
     text = _replace_once(
         text,
         "      await onOk(cleanValues)",
-        "      await onOk({ ...entity, ...cleanValues })",
-        "OverrideModal safe entity merge",
+        "      await onOk({ id: entity?.id, override: cleanValues.override })",
+        "OverrideModal patch-only submit",
     )
     return text
 
