@@ -167,17 +167,12 @@ def _modify_endpoints(text: str) -> str:
 '''
     function = function.replace(info_old, info_new, 1)
 
-    condition_old = "        if result.is_err() {\n"
-    if function.count(condition_old) != 1:
-        raise ModifyError("manual upload error condition anchor changed")
-    function = function.replace(condition_old, "        if let Err(e) = result {\n", 1)
-
     error_old = '            tracing::error!(template_id = upload_config.id, "页面上传失败");\n'
     if function.count(error_old) != 1:
         raise ModifyError("manual upload error log anchor changed")
     function = function.replace(
         error_old,
-        '            tracing::error!(template_id, file_count, error = ?e, "页面上传失败");\n',
+        '            tracing::error!(template_id, file_count, "页面上传失败");\n',
         1,
     )
 
