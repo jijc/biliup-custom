@@ -108,6 +108,8 @@ class ManualUploadFeedbackModifierTests(unittest.TestCase):
             self.assertNotIn("return Ok(Json(json!({})));", endpoints.split("if upload_config.is_noop_uploader()", 1)[1].split("}", 1)[0])
             self.assertIn("file_count = files.len()", endpoints)
             self.assertIn('"accepted": true', endpoints)
+            self.assertIn('error = ?e', endpoints)
+            self.assertIn('"页面上传失败"', endpoints)
 
     def test_modifier_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
