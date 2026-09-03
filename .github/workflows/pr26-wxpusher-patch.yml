@@ -25,27 +25,38 @@ jobs:
 
           path = Path('scripts/add_daily_seq_wxpusher.py')
           text = path.read_text(encoding='utf-8')
-          old = '''    live_pattern = re.compile(r"(Ok\\(LiveStatus::Live\\s*\\{.*?\\}\\)\\s*=>\\s*\\{.*?retry_count\\s*=\\s*0;)", re.S)
+          start_token = '    live_pattern = re.compile(r"(Ok\\(LiveStatus::Live'
+          end_token = '    offline_pattern = re.compile('
+
+          starts = []
+          pos = 0
+          while True:
+              idx = text.find(start_token, pos)
+              if idx < 0:
+                  break
+              starts.append(idx)
+              pos = idx + 1
+          if len(starts) != 1:
+              raise SystemExit(f'expected exactly one Live patch block, found {len(starts)}')
+
+          start = starts[0]
+          end = text.find(end_token, start)
+          if end < 0:
+              raise SystemExit('offline patch block anchor not found')
+
+          new_block = r'''    live_pattern = re.compile(r"(Ok\(LiveStatus::Live\s*\{.*?\}\)\s*=>\s*\{)", re.S)
           live_match = live_pattern.search(download)
           if not live_match:
               raise ModifyError("live retry branch not found")
           block = live_match.group(1)
-          if "last_check_offline" not in block:
-              block_new = block.replace("retry_count = 0;", "retry_count = 0;\\n                    last_check_offline = false;", 1)
-              download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
-          '''
-          new = '''    live_pattern = re.compile(r"(Ok\\(LiveStatus::Live\\s*\\{.*?\\}\\)\\s*=>\\s*\\{)", re.S)
-          live_match = live_pattern.search(download)
-          if not live_match:
-              raise ModifyError("live retry branch not found")
-          block = live_match.group(1)
-          block_new = block + "\\n                    last_check_offline = false;"
+          block_new = block + "\n                    last_check_offline = false;"
           download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
+
           '''
-          count = text.count(old)
-          if count != 1:
-              raise SystemExit(f'expected exactly one old Live patch block, found {count}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          updated = text[:start] + new_block + text[end:]
+          if updated == text:
+              raise SystemExit('patch made no change')
+          path.write_text(updated, encoding='utf-8')
           PY
 
           git diff --check
