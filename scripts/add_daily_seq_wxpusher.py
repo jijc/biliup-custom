@@ -519,12 +519,12 @@ def _modify_download(download: str) -> str:
     )
 
     live_pattern = re.compile(r"(Ok\(LiveStatus::Live\s*\{.*?\}\)\s*=>\s*\{)", re.S)
-live_match = live_pattern.search(download)
-if not live_match:
-    raise ModifyError("live retry branch not found")
-block = live_match.group(1)
-block_new = block + "\n                    last_check_offline = false;"
-download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
+    live_match = live_pattern.search(download)
+    if not live_match:
+        raise ModifyError("live retry branch not found")
+    block = live_match.group(1)
+    block_new = block + "\n                    last_check_offline = false;"
+    download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
 
     offline_pattern = re.compile(r"(Ok\(LiveStatus::Offline\)\s*=>\s*\{\s*retry_count\s*\+=\s*1;)", re.S)
     offline_match = offline_pattern.search(download)
