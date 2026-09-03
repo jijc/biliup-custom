@@ -1,0 +1,65 @@
+name: One-time PR26 WxPusher patch
+
+on:
+  push:
+    branches:
+      - fix/upstream-1673-wxpusher-compat
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/upstream-1673-wxpusher-compat
+          fetch-depth: 0
+
+      - name: Patch Live branch state handling
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/add_daily_seq_wxpusher.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    live_pattern = re.compile(r"(Ok\\(LiveStatus::Live\\s*\\{.*?\\}\\)\\s*=>\\s*\\{.*?retry_count\\s*=\\s*0;)", re.S)
+          live_match = live_pattern.search(download)
+          if not live_match:
+              raise ModifyError("live retry branch not found")
+          block = live_match.group(1)
+          if "last_check_offline" not in block:
+              block_new = block.replace("retry_count = 0;", "retry_count = 0;\\n                    last_check_offline = false;", 1)
+              download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
+          '''
+          new = '''    live_pattern = re.compile(r"(Ok\\(LiveStatus::Live\\s*\\{.*?\\}\\)\\s*=>\\s*\\{)", re.S)
+          live_match = live_pattern.search(download)
+          if not live_match:
+              raise ModifyError("live retry branch not found")
+          block = live_match.group(1)
+          block_new = block + "\\n                    last_check_offline = false;"
+          download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
+          '''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one old Live patch block, found {count}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- scripts/add_daily_seq_wxpusher.py
+
+      - name: Commit patch if needed
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No patch needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/add_daily_seq_wxpusher.py
+          git commit -m "fix: mark WxPusher stream check online before retry split"
+          git push origin HEAD:fix/upstream-1673-wxpusher-compat
