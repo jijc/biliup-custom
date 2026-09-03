@@ -44,21 +44,25 @@ jobs:
           if end < 0:
               raise SystemExit('offline patch block anchor not found')
 
-          new_block = r'''    live_pattern = re.compile(r"(Ok\(LiveStatus::Live\s*\{.*?\}\)\s*=>\s*\{)", re.S)
-          live_match = live_pattern.search(download)
-          if not live_match:
-              raise ModifyError("live retry branch not found")
-          block = live_match.group(1)
-          block_new = block + "\n                    last_check_offline = false;"
-          download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]
-
-          '''
+          new_lines = [
+              '    live_pattern = re.compile(r"(Ok\\(LiveStatus::Live\\s*\\{.*?\\}\\)\\s*=>\\s*\\{)", re.S)',
+              '    live_match = live_pattern.search(download)',
+              '    if not live_match:',
+              '        raise ModifyError("live retry branch not found")',
+              '    block = live_match.group(1)',
+              '    block_new = block + "\\n                    last_check_offline = false;"',
+              '    download = download[: live_match.start(1)] + block_new + download[live_match.end(1) :]',
+              '',
+          ]
+          new_block = '\n'.join(new_lines) + '\n'
           updated = text[:start] + new_block + text[end:]
           if updated == text:
-              raise SystemExit('patch made no change')
-          path.write_text(updated, encoding='utf-8')
+              print('Target block already correct')
+          else:
+              path.write_text(updated, encoding='utf-8')
           PY
 
+          python -m py_compile scripts/add_daily_seq_wxpusher.py
           git diff --check
           git diff -- scripts/add_daily_seq_wxpusher.py
 
@@ -72,5 +76,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/add_daily_seq_wxpusher.py
-          git commit -m "fix: mark WxPusher stream check online before retry split"
+          git commit -m "fix: preserve indentation in WxPusher retry compatibility patch"
           git push origin HEAD:fix/upstream-1673-wxpusher-compat
